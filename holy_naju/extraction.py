@@ -7,6 +7,8 @@ from bs4 import BeautifulSoup
 from docx import Document
 import pymupdf
 
+EXTRACTOR_REVISION = "extract-2"
+
 
 def clean(text):
     return re.sub(r"\s+", " ", text).strip()
@@ -88,7 +90,8 @@ def extract_pdf(path, languages="eng+kor", tessdata=None):
                                      "locator": {"page": page.number + 1,
                                                  "bbox": [round(v, 2) for v in block[:4]]},
                                      "text": text})
-            info["characters"] = len(page.get_text(textpage=textpage))
+            info["raw_text"] = page.get_text(textpage=textpage)
+            info["characters"] = len(info["raw_text"])
             pages.append(info)
     return {"title": title, "pages": pages, "passages": passages}
 
@@ -119,7 +122,7 @@ def extract_file(path, source="user_import", languages="eng+kor", tessdata=None)
             for i, t in enumerate(texts) if clean(t)]}
     else:
         raise ValueError(f"unsupported_format:{suffix}")
-    result.update(sha256=hashlib.sha256(raw).hexdigest(), extractor_revision="sample-1")
+    result.update(sha256=hashlib.sha256(raw).hexdigest(), extractor_revision=EXTRACTOR_REVISION)
     result["characters"] = sum(len(p["text"]) for p in result["passages"])
     result["status"] = "partial" if any(p["status"] != "succeeded" for p in result["pages"]) else "extracted"
     if not result["characters"]:
