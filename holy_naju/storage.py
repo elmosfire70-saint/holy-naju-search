@@ -56,11 +56,12 @@ class Library:
         self.db.execute("PRAGMA foreign_keys = ON")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
         try:
-            if version == 0:
-                sql = (Path(__file__).parent / "migrations/001_documents.sql").read_text(encoding="utf-8")
-                self.db.executescript("BEGIN IMMEDIATE;\n" + sql + "\nCOMMIT;")
-            elif version != 1:
+            migrations = ("001_documents.sql", "002_search.sql")
+            if version > len(migrations):
                 raise ValueError(f"unsupported_schema_version:{version}")
+            for name in migrations[version:]:
+                sql = (Path(__file__).parent / "migrations" / name).read_text(encoding="utf-8")
+                self.db.executescript("BEGIN IMMEDIATE;\n" + sql + "\nCOMMIT;")
             with self.db:
                 for kind, (name, base) in SOURCE_INFO.items():
                     self.db.execute("INSERT OR IGNORE INTO sources VALUES (?,?,?,?)",

@@ -2,7 +2,7 @@
 
 목표 논리 설계와 현재 구현 범위를 함께 기록한다. 개인 PC용 원본 DB는 SQLite이며 초기 마이그레이션은 `holy_naju/migrations/001_documents.sql`에 구현했다. GraphDB는 같은 ID와 근거를 사용하는 후속 검색·탐색 저장소로 확장한다.
 
-현재 구현은 sources, documents, editions, assets, ingestion_jobs, acquisitions, document_versions, extraction_pages, passages다. 아래 목표 표의 번역·검색·교정 관련 추가 필드는 해당 기능 구현 시 마이그레이션으로 확장한다. 지원하지 않는 DB 버전은 수정하지 않고 거부한다.
+스키마 버전 1은 sources, documents, editions, assets, ingestion_jobs, acquisitions, document_versions, extraction_pages, passages다. 버전 2에서 index_generations, search_state, passage_fts, search_runs, search_hits, search_history를 추가했다. 번역·교정 관련 추가 필드는 해당 기능 구현 시 확장한다. 지원하지 않는 DB 버전은 수정하지 않고 거부한다.
 
 ## 식별과 버전
 
@@ -63,7 +63,12 @@
 
 ## 검색 결과 재사용
 
+현재 검색 실행은 전체 트랜잭션이 성공한 뒤에만 보존한다. 실패는 기록/캐시를 남기지 않고 오류로 반환한다. 정상 빈 결과는 재사용할 수 있다. search_hits의 snapshot은 당시 문헌 제목·출처·언어·URL·발표일·점수·근거 발췌·강조 위치를 보존하며 문헌 버전과 문단은 외래 키로 보호한다.
+
+현재 정상 추출 버전과 문헌 메타데이터를 비교해 색인 세대를 관리한다. 색인 재생성은 파생 FTS만 교체하고 과거 실행과 근거 버전을 유지한다. 검색과 세대 교체는 하나의 쓰기 트랜잭션에서 수행한다. 긴 검색 시 쓰기 작업 대기와 대량 자료의 메타데이터 비교 비용은 후속 부하 평가 대상이다.
+
 캐시 키는 정규화 질의·필터·검색 모드·색인 세대·질의 확장 및 검색 모델 revision을 안정적으로 직렬화한 해시다.
+현재 단계는 질의 확장/검색 모델을 쓰지 않으므로 검색 알고리즘 버전을 포함한다. 결과 상한도 키에 포함하며 단어 AND 검색은 순서와 중복을 정규화하고 구절 순서는 유지한다. 검색어 원문은 각 요청 이력에 남긴다.
 필터 순서는 정규화하되 인용구·부정·언어 의미는 유지한다.
 
 같은 키의 성공한 검색 결과는 재사용한다. 실패나 중단은 유효한 빈 검색 결과로 취급하지 않는다.
