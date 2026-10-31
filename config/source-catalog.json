@@ -1,0 +1,26 @@
+{
+  "checked_on": "2026-10-31",
+  "scope": "수집 진입점과 대표 샘플이며 전체 문헌 목록이 아니다.",
+  "priority_encyclicals": [
+    {"title":"Ecclesia de Eucharistia","url":"https://www.vatican.va/content/john-paul-ii/en/encyclicals/documents/hf_jp-ii_enc_20030417_eccl-de-euch.html","status":"sample_extracted"},
+    {"title":"Redemptoris Mater","url":"https://www.vatican.va/content/john-paul-ii/en/encyclicals/documents/hf_jp-ii_enc_25031987_redemptoris-mater.html","status":"official_page_verified_not_downloaded"},
+    {"title":"Deus caritas est","url":"https://www.vatican.va/content/benedict-xvi/en/encyclicals/documents/hf_ben-xvi_enc_20051225_deus-caritas-est.html","status":"official_page_verified_not_downloaded"}
+  ],
+  "collections": [
+    {"id":"councils","url":"https://www.vatican.va/archive/hist_councils/index.htm","status":"entry_verified"},
+    {"id":"vatican-ii","url":"https://www.vatican.va/archive/hist_councils/ii_vatican_council/index.htm","status":"entry_verified"},
+    {"id":"vatican-i","url":"https://www.vatican.va/archive/hist_councils/i-vatican-council/index.htm","status":"entry_verified"},
+    {"id":"trent-and-earlier","url":null,"status":"entry_not_yet_verified","note":"공식 원문 진입점 추가 조사 필요. 문헌이 없다는 판정이 아니다."},
+    {"id":"catechism","url":"https://www.vatican.va/archive/ccc/index.htm","status":"entry_verified"},
+    {"id":"naju-messages","url":"https://najumary.or.kr/Messages1/","status":"entry_verified"}
+  ],
+  "samples": [
+    {"id":"dei-verbum","source":"vatican","url":"https://www.vatican.va/archive/hist_councils/ii_vatican_council/documents/vat-ii_const_19651118_dei-verbum_en.html","expected_contains":["revelation","Scripture"],"min_characters":10000},
+    {"id":"dei-filius","source":"vatican","url":"https://www.vatican.va/archive/hist_councils/i-vatican-council/documents/vat-i_const_18700424_dei-filius_it.html","languages":"ita","expected_contains":["Dio"],"min_characters":5000},
+    {"id":"catechism-revelation","source":"vatican","url":"https://www.vatican.va/archive/ENG0015/__PF.HTM","expected_contains":["God"],"min_characters":500},
+    {"id":"ecclesia-de-eucharistia","source":"vatican","url":"https://www.vatican.va/content/john-paul-ii/en/encyclicals/documents/hf_jp-ii_enc_20030417_eccl-de-euch.html","expected_contains":["Eucharist"],"min_characters":20000},
+    {"id":"naju-message","source":"naju","url":"https://najumary.or.kr/Messages1/?bmode=view&idx=170736080","languages":"kor","expected_contains":["2026","예수"],"min_characters":1000},
+    {"id":"placeholder-pdf-negative","source":"vatican","url":"https://www.vatican.va/content/john-paul-ii/en/encyclicals/documents/hf_jp-ii_enc_20030417_eccl-de-euch.pdf","expected_contains":["Eucharist"],"min_characters":20000,"expected":"content_rejected"},
+    {"id":"press-pdf-technical","source":"vatican","url":"https://press.vatican.va/content/salastampa/it/bollettino/pubblico/2024/05/17/0403/00842.pdf","expected_contains":["2024"],"min_characters":10000,"note":"본문 있는 PDF의 기술 검증 샘플이며 첫 문헌군의 수집 목록으로 확정한 자료는 아니다."}
+  ]
+}
