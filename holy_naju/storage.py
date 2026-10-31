@@ -56,7 +56,7 @@ class Library:
         self.db.execute("PRAGMA foreign_keys = ON")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
         try:
-            migrations = ("001_documents.sql", "002_search.sql")
+            migrations = ("001_documents.sql", "002_search.sql", "003_local_models.sql")
             if version > len(migrations):
                 raise ValueError(f"unsupported_schema_version:{version}")
             for name in migrations[version:]:

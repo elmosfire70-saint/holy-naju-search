@@ -32,8 +32,21 @@ def _ensure_index(db):
     return generation
 
 
-def _ranked_hits(db, terms, filters, limit):
+def _filter_sql(filters):
     conditions, values = [], []
+    for key, column in (("source", "s.kind"), ("language", "lower(e.language)"), ("document_type", "d.document_type")):
+        if filters.get(key):
+            conditions.append(column + "=?")
+            values.append(filters[key])
+    for key, operator in (("issued_from", ">="), ("issued_to", "<=")):
+        if filters.get(key):
+            conditions.append("d.issued_on" + operator + "?")
+            values.append(filters[key])
+    return conditions, values
+
+
+def _ranked_hits(db, terms, filters, limit):
+    conditions, values = _filter_sql(filters)
     long_terms = [term for term in terms if len(term) >= 3]
     if long_terms:
         expression = " AND ".join('"' + term.replace('"', '""') + '"' for term in long_terms)
@@ -48,14 +61,6 @@ def _ranked_hits(db, terms, filters, limit):
     for term in terms:
         conditions.append("(instr(keyword_lower(f.title),?)>0 OR instr(keyword_lower(f.body),?)>0)")
         values.extend((term, term))
-    for key, column in (("source", "s.kind"), ("language", "lower(e.language)"), ("document_type", "d.document_type")):
-        if filters.get(key):
-            conditions.append(column + "=?")
-            values.append(filters[key])
-    for key, operator in (("issued_from", ">="), ("issued_to", "<=")):
-        if filters.get(key):
-            conditions.append("d.issued_on" + operator + "?")
-            values.append(filters[key])
     sql = ("SELECT p.id AS passage_id,p.version_id,p.text,p.locator,p.start_offset,p.end_offset,"
            "e.id AS edition_id,e.document_id,e.language,e.canonical_url,d.title,d.document_type,d.issued_on,"
            "s.kind AS source," + score + " AS score FROM passage_fts f "
@@ -86,6 +91,7 @@ def get_run(library, run_id):
         raise KeyError(run_id)
     result = dict(row)
     result["filters"] = json.loads(result["filters"])
+    result["model_profile"] = json.loads(result["model_profile"]) if result["model_profile"] else None
     result["hits"] = [json.loads(hit[0]) for hit in library.db.execute(
         "SELECT snapshot FROM search_hits WHERE run_id=? ORDER BY rank", (run_id,))]
     return result
@@ -95,15 +101,30 @@ def history(library, limit=20):
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError("invalid_limit")
     records = [dict(row) for row in library.db.execute(
-        "SELECT h.*,r.query_normalized,r.filters,r.mode,r.index_generation_id,r.created_at AS searched_at "
+        "SELECT h.*,r.query_normalized,r.filters,r.mode,r.retrieval,r.index_generation_id,r.created_at AS searched_at "
         "FROM search_history h JOIN search_runs r ON r.id=h.run_id ORDER BY h.accessed_at DESC,h.id LIMIT ?", (limit,))]
     for record in records:
         record["filters"] = json.loads(record["filters"])
     return records
 
 
+def _save_run(db, query, normalized, filters, mode, limit, generation, key, pipeline, hits,
+              retrieval="keyword", model_profile=None):
+    run_id = str(uuid4())
+    db.execute("INSERT INTO search_runs(id,cache_key,index_generation_id,query_original,query_normalized,filters,"
+               "mode,result_limit,pipeline_revision,created_at,retrieval,model_profile) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+               (run_id, key, generation, query, normalized, encode(filters), mode, limit, pipeline, now(),
+                retrieval, encode(model_profile) if model_profile else None))
+    for rank, hit in enumerate(hits, 1):
+        hit["rank"] = rank
+        db.execute("INSERT INTO search_hits VALUES (?,?,?,?,?)",
+                   (run_id, rank, hit["passage_id"], hit["version_id"], encode(hit)))
+    return run_id
+
+
 def search(library, query, *, source=None, language=None, document_type=None,
-           issued_from=None, issued_to=None, mode="keyword", limit=20, refresh=False):
+           issued_from=None, issued_to=None, mode="keyword", limit=20, refresh=False,
+           retrieval="keyword", client=None, embedding_model="qwen3-embedding:0.6b"):
     if not isinstance(query, str) or not query.strip() or len(query) > 500 or "\x00" in query:
         raise ValueError("invalid_query")
     if not isinstance(mode, str) or mode not in {"keyword", "phrase"} or type(limit) is not int or not 1 <= limit <= 100:
@@ -112,6 +133,10 @@ def search(library, query, *, source=None, language=None, document_type=None,
         raise ValueError("invalid_source")
     if type(refresh) is not bool:
         raise ValueError("invalid_refresh")
+    if not isinstance(retrieval, str) or retrieval not in {"keyword", "hybrid"}:
+        raise ValueError("invalid_retrieval")
+    if retrieval == "hybrid" and mode != "keyword":
+        raise ValueError("hybrid_requires_keyword_mode")
     if language is not None:
         if not isinstance(language, str) or not re.fullmatch(r"[A-Za-z0-9-]{1,32}", language):
             raise ValueError("invalid_language")
@@ -129,6 +154,9 @@ def search(library, query, *, source=None, language=None, document_type=None,
         raise ValueError("too_many_terms")
     filters = {k: v for k, v in {"source": source, "language": language, "document_type": document_type,
                                 "issued_from": issued_from, "issued_to": issued_to}.items() if v is not None}
+    if retrieval == "hybrid":
+        from holy_naju.semantic import hybrid_search
+        return hybrid_search(library, query, normalized, terms, filters, limit, refresh, client, embedding_model)
     # AND 조건의 단어 순서는 검색 의미를 바꾸지 않지만 구절 모드의 순서는 보존한다.
     effective_query = terms if mode == "keyword" else normalized
     db = library.db
@@ -143,13 +171,7 @@ def search(library, query, *, source=None, language=None, document_type=None,
             run_id = cached["id"]
         else:
             hits = [_snapshot(row, terms) for row in _ranked_hits(db, terms, filters, limit)]
-            run_id = str(uuid4())
-            db.execute("INSERT INTO search_runs VALUES (?,?,?,?,?,?,?,?,?,?)",
-                       (run_id, key, generation, query, normalized, encode(filters), mode, limit, PIPELINE_REVISION, now()))
-            for rank, hit in enumerate(hits, 1):
-                hit["rank"] = rank
-                db.execute("INSERT INTO search_hits VALUES (?,?,?,?,?)",
-                           (run_id, rank, hit["passage_id"], hit["version_id"], encode(hit)))
+            run_id = _save_run(db, query, normalized, filters, mode, limit, generation, key, PIPELINE_REVISION, hits)
         db.execute("INSERT INTO search_history VALUES (?,?,?,?,?)", (str(uuid4()), run_id, query, now(), int(bool(cached))))
     result = get_run(library, run_id)
     result["reused"] = bool(cached)

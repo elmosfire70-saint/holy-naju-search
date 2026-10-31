@@ -2,7 +2,7 @@
 
 교황청 공식 문헌, 나주 사랑의 메시지, 사용자가 가져온 문서를 한국어 중심으로 검색하는 개인 PC용 연구 앱.
 
-현재는 문헌 SQLite DB, 파일 가져오기, 로컬 OCR, 키워드 검색·필터·검색 기록과 결과 재사용까지 구현했다. 다국어 의미 검색·번역과 UI는 다음 단계다.
+현재는 문헌 SQLite DB, 파일 가져오기, 로컬 OCR, 키워드·다국어 결합 검색, 문단 한국어 번역과 검색 기록·결과 재사용을 CLI로 구현했다. 번역의 인간 검토·대규모 품질 평가와 UI는 아직 남아 있다.
 
 1차는 제2차 바티칸 공의회 이전을 포함하는 공의회 문헌 검색, 스캔 PDF 로컬 OCR, 원문/한국어 번역, 검색 기록을 완성한다. 여러 문헌을 종합하는 로컬 LLM 답변은 1차 완료 후 2차로 진행한다.
 
@@ -14,6 +14,7 @@
 - [샘플 검증 보고](docs/sample-verification.md)
 - [문헌 DB 검증 보고](docs/database-verification.md)
 - [키워드 검색 검증 보고](docs/search-verification.md)
+- [로컬 다국어 검색·번역 검증 보고](docs/local-model-verification.md)
 
 ## 로컬 추출 검증
 
@@ -59,7 +60,24 @@ DB 기본 위치는 `data/library/library.sqlite3`, 보관 파일은 `data/libra
 
 같은 단어 조건·필터·방식·결과 상한·자료 세대·검색 버전은 결과를 재사용한다. 검색할 때마다 이력은 추가한다. 결과는 근거 발췌와 문자 범위로 강조 위치를 반환하며, 원문에 HTML 표시 코드를 삽입하지 않는다.
 
-이 단계는 원문 키워드 검색이다. 한국어가 없는 외국어 문헌을 한국어 의미로 찾는 기능과 번역은 아직 없다.
+## 로컬 다국어 검색과 문단 번역
+
+Ollama를 PC에서 실행한 상태에서 모델을 준비한다. 모델 다운로드에는 인터넷이 필요하지만 추론은 `127.0.0.1:11434`에서만 수행한다. 클라우드 모델·원격 별칭·HTTP 리다이렉트는 거부한다.
+
+```powershell
+ollama pull qwen3-embedding:0.6b
+ollama pull qwen3.5:9b
+.\.venv\Scripts\python.exe -X utf8 scripts/search_documents.py search '성경과 성전의 관계' --source vatican --retrieval hybrid
+.\.venv\Scripts\python.exe -X utf8 scripts/local_models.py translate PASSAGE_ID
+.\.venv\Scripts\python.exe -X utf8 scripts/local_models.py show TRANSLATION_ID
+.\.venv\Scripts\python.exe -X utf8 scripts/local_models.py evaluate
+```
+
+`PASSAGE_ID`는 검색 결과의 `passage_id`다. 번역 결과에는 원문·문단/버전 ID·위치·모델 digest·프롬프트 버전과 `review_status=unreviewed`가 함께 반환된다. 생성 번역은 공식 번역이 아니며, 반드시 원문과 대조한다. 현재 이탈리아어 샘플에서 오역·제3언어 혼입이 관찰되어 번역 품질을 출시 통과로 판정하지 않았다.
+
+`hybrid`는 키워드와 로컬 의미 검색 순위를 결합한다. 구절 모드와 함께 사용할 수 없다. 같은 질의 순서·필터·자료·모델/알고리즘 버전이면 결과를 재사용하며, 임베딩도 입력 해시로 재사용한다. 처음에는 문단 임베딩 생성 시간이 들고 이후 검색은 이를 재사용한다. 모델을 사용할 수 없으면 `diagnostics`와 함께 키워드 검색으로 대체하므로 `retrieval`을 확인한다.
+
+번역은 같은 원문·모델·프롬프트의 정상 결과만 재사용한다. `translate --refresh`로 다시 생성할 수 있다. 모델이 꺼져 있어도 저장한 번역 ID의 `show` 및 검색 실행 ID의 `show`는 동작한다. 원문이 한국어면 모델 호출 없이 원문임을 표시해 반환한다. 여러 문헌을 종합하는 AI 답변은 구현하지 않았다.
 
 작업은 [설계 추적 이슈 #1](https://github.com/elmosfire70-saint/holy-naju-search/issues/1)에서 시작한다. 수집 문서·가져온 파일·검색 기록·모델·DB는 개인 PC의 로컬 데이터로 보관한다.
 

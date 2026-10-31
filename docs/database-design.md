@@ -2,7 +2,7 @@
 
 목표 논리 설계와 현재 구현 범위를 함께 기록한다. 개인 PC용 원본 DB는 SQLite이며 초기 마이그레이션은 `holy_naju/migrations/001_documents.sql`에 구현했다. GraphDB는 같은 ID와 근거를 사용하는 후속 검색·탐색 저장소로 확장한다.
 
-스키마 버전 1은 sources, documents, editions, assets, ingestion_jobs, acquisitions, document_versions, extraction_pages, passages다. 버전 2에서 index_generations, search_state, passage_fts, search_runs, search_hits, search_history를 추가했다. 번역·교정 관련 추가 필드는 해당 기능 구현 시 확장한다. 지원하지 않는 DB 버전은 수정하지 않고 거부한다.
+스키마 버전 1은 sources, documents, editions, assets, ingestion_jobs, acquisitions, document_versions, extraction_pages, passages다. 버전 2에서 index_generations, search_state, passage_fts, search_runs, search_hits, search_history를 추가했다. 버전 3은 embeddings, passage_embeddings, translations 및 search_runs의 retrieval/model_profile을 추가한다. 교정 관련 추가 필드는 해당 기능 구현 시 확장한다. 지원하지 않는 DB 버전은 수정하지 않고 거부한다.
 
 ## 식별과 버전
 
@@ -24,7 +24,9 @@
 | document_versions | id, edition_id, acquisition_id, body_sha256, extracted_text, extractor_version, created_at | 본문 또는 추출 방식이 바뀌면 새 버전. 원본 파일과 추출기 식별 |
 | extraction_pages | id, version_id, page_number, method, engine_revision, language, status, raw_text, corrected_text, confidence, reviewed_at | 스캔·혼합 PDF의 페이지별 추출/OCR 상태. 엔진이 제공하지 않는 confidence는 빈값 |
 | passages | id, version_id, ordinal, official_number, page_start, page_end, locator, start_offset, end_offset, text | 원문 버전 내부 순서 유일. 원문과 위치 검증 |
-| translations | id, passage_id, language, text, provider, model_revision, prompt_revision, status, reviewed_at | 원문 ID와 생성 버전으로 번역 재사용. 실패 상태도 구별 |
+| translations | id, passage_id, source_hash, target_language, model_profile, prompt_revision, text, status, review_status, error, created_at | 원문 ID·해시·모델·프롬프트로 번역 재사용. 실패와 미검토 생성물 구별 |
+| embeddings | id, model_profile, input_hash, dimensions, vector, created_at | 모델 프로필과 입력 해시의 조합 유일. 정규화 float32 벡터 |
+| passage_embeddings | passage_id, model_profile, input_hash, embedding_id | 원문 문단과 임베딩을 외래 키로 연결 |
 | ingestion_jobs | id, target, job_kind, status, checkpoint, attempts, error_code, updated_at | 목록 발견·다운로드·추출·색인의 재개 상태 |
 | index_generations | id, created_at, manifest_hash, pipeline_revision, status | 원문·번역·모델 변경을 포함한 색인 세대 |
 | search_runs | id, query_original, query_normalized, filters, mode, cache_key, index_generation_id, pipeline_revision, status, created_at | 검색 당시의 조건과 자료 버전. 정상 검색만 재사용 |
@@ -65,15 +67,24 @@
 
 현재 검색 실행은 전체 트랜잭션이 성공한 뒤에만 보존한다. 실패는 기록/캐시를 남기지 않고 오류로 반환한다. 정상 빈 결과는 재사용할 수 있다. search_hits의 snapshot은 당시 문헌 제목·출처·언어·URL·발표일·점수·근거 발췌·강조 위치를 보존하며 문헌 버전과 문단은 외래 키로 보호한다.
 
-현재 정상 추출 버전과 문헌 메타데이터를 비교해 색인 세대를 관리한다. 색인 재생성은 파생 FTS만 교체하고 과거 실행과 근거 버전을 유지한다. 검색과 세대 교체는 하나의 쓰기 트랜잭션에서 수행한다. 긴 검색 시 쓰기 작업 대기와 대량 자료의 메타데이터 비교 비용은 후속 부하 평가 대상이다.
+현재 정상 추출 버전과 문헌 메타데이터를 비교해 색인 세대를 관리한다. 색인 재생성은 파생 FTS만 교체하고 과거 실행과 근거 버전을 유지한다. 키워드 검색과 세대 교체는 하나의 쓰기 트랜잭션에서 수행한다. 의미 검색은 긴 모델 호출을 쓰기 트랜잭션 밖에서 수행하고 배치별 임베딩만 커밋한다. 결과 저장 전 세대가 같은지 재검사해 변경된 원문과 결과가 섞이지 않게 한다. 대량 자료의 메타데이터 비교·직접 벡터 순회 비용은 후속 부하 평가 대상이다.
 
 캐시 키는 정규화 질의·필터·검색 모드·색인 세대·질의 확장 및 검색 모델 revision을 안정적으로 직렬화한 해시다.
-현재 단계는 질의 확장/검색 모델을 쓰지 않으므로 검색 알고리즘 버전을 포함한다. 결과 상한도 키에 포함하며 단어 AND 검색은 순서와 중복을 정규화하고 구절 순서는 유지한다. 검색어 원문은 각 요청 이력에 남긴다.
+키워드 키에는 검색 알고리즘 버전을 포함한다. 결과 상한도 키에 포함하며 단어 AND 검색은 순서와 중복을 정규화하고 구절 순서는 유지한다. 결합 검색은 문장의 단어 순서를 유지하고 임베딩 모델 digest·런타임·문맥 길이·입력 지침과 결합 알고리즘 버전을 추가한다. 검색어 원문은 각 요청 이력에 남긴다.
 필터 순서는 정규화하되 인용구·부정·언어 의미는 유지한다.
 
 같은 키의 성공한 검색 결과는 재사용한다. 실패나 중단은 유효한 빈 검색 결과로 취급하지 않는다.
 색인 변경 후에는 새 검색 실행을 만든다. 과거 run과 hit는 원문 버전 및 해당 번역 버전을 계속 참조한다.
+현재 hit는 원문 문단을 참조하며, 번역은 원문 문단에서 별도로 조회한다. 번역 결과를 검색 근거에 붙이는 UI 단계에는 사용한 번역 ID를 명시적으로 전달한다.
 캐시 만료는 과거 검색 기록 삭제와 별개다. 원문 버전이나 번역을 정리할 때 과거 근거가 끊어지지 않도록 참조 여부를 검사한다.
+
+## 로컬 모델 파생 데이터
+
+임베딩 입력은 제목과 원문 문단이다. 모델별 질의 지침도 입력 해시에 포함한다. 현재 자료 규모에서는 SQLite 벡터를 읽어 코사인 유사도를 직접 계산하고 키워드 순위와 RRF로 결합한다. 학습형 재정렬기와 ANN 서버는 아직 도입하지 않았다.
+
+번역 캐시는 문단 ID·원문 해시·목표 언어(현재 한국어 고정)·모델 digest/런타임/옵션·프롬프트 버전으로 구분한다. 완료 출력과 실패 기록을 보존하며 실패는 재사용하지 않는다. 원문 버전은 수정하지 않는다. 완료는 생성 처리의 완료일 뿐 내용의 승인이나 정확도 판정이 아니다. 새 번역의 검토 상태는 항상 unreviewed다.
+
+모델 태그가 바뀌면 새 digest 프로필로 생성한다. 호출 후 digest도 재확인한다. 모델이 꺼져 있으면 신규 번역은 오류이고 신규 결합 검색은 진단을 포함한 키워드 대체 경로다. 과거 검색/번역 ID 열기는 모델 없이 동작한다.
 
 ## GraphDB 확장 경계
 

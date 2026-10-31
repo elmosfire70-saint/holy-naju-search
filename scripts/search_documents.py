@@ -24,6 +24,8 @@ def main():
     finder.add_argument("--mode", choices=["keyword", "phrase"], default="keyword")
     finder.add_argument("--limit", type=int, default=20)
     finder.add_argument("--refresh", action="store_true")
+    finder.add_argument("--retrieval", choices=["keyword", "hybrid"], default="keyword")
+    finder.add_argument("--embedding-model", default="qwen3-embedding:0.6b")
     records = commands.add_parser("history")
     records.add_argument("--limit", type=int, default=20)
     show = commands.add_parser("show")

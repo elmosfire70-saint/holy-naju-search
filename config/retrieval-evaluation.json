@@ -1,0 +1,11 @@
+{
+  "reference_status": "초기 수동 선정 참조 후보이며 사용자가 검토한 정답 세트가 아니다.",
+  "questions": [
+    {"query":"성체와 교회의 일치","source":"vatican","expected_url":"https://www.vatican.va/content/john-paul-ii/en/encyclicals/documents/hf_jp-ii_enc_20030417_eccl-de-euch.html"},
+    {"query":"성경과 성전의 관계","source":"vatican","expected_url":"https://www.vatican.va/archive/hist_councils/ii_vatican_council/documents/vat-ii_const_19651118_dei-verbum_en.html"},
+    {"query":"신앙과 이성은 어떻게 조화를 이루는가","source":"vatican","expected_url":"https://www.vatican.va/archive/hist_councils/i-vatican-council/documents/vat-i_const_18700424_dei-filius_it.html"},
+    {"query":"하느님은 인간에게 자신의 생명을 나누어 주신다","source":"vatican","expected_url":"https://www.vatican.va/archive/ENG0015/__PF.HTM"},
+    {"query":"기도 봉헌","source":"naju","expected_url":"https://najumary.or.kr/Messages1/?bmode=view&idx=170736080"},
+    {"query":"사랑 기도","source":"user_import","expected_source":"user_import"}
+  ]
+}
