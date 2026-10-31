@@ -20,7 +20,8 @@
 | editions | id, document_id, source_id, language, canonical_url, translation_kind | 언어판·발행 형태. 파일은 canonical_url이 없을 수 있음 |
 | assets | id, sha256, media_type, byte_size, relative_path, original_filename | 동일 바이너리 해시는 유일. 상대 경로로 보관소 이동 가능 |
 | acquisitions | id, edition_id, asset_id, origin_kind, origin_url, acquired_at, job_id | 다운로드·사용자 가져오기 이력. 같은 파일의 복수 유입 경로 보존 |
-| document_versions | id, edition_id, acquisition_id, body_sha256, extracted_text, extractor_version, created_at | 버전은 덮어쓰지 않음. 원본 파일과 추출기 식별 |
+| document_versions | id, edition_id, acquisition_id, body_sha256, extracted_text, extractor_version, created_at | 본문 또는 추출 방식이 바뀌면 새 버전. 원본 파일과 추출기 식별 |
+| extraction_pages | id, version_id, page_number, method, engine_revision, language, status, raw_text, corrected_text, confidence, reviewed_at | 스캔·혼합 PDF의 페이지별 추출/OCR 상태. 엔진이 제공하지 않는 confidence는 빈값 |
 | passages | id, version_id, ordinal, official_number, page_start, page_end, locator, start_offset, end_offset, text | 원문 버전 내부 순서 유일. 원문과 위치 검증 |
 | translations | id, passage_id, language, text, provider, model_revision, prompt_revision, status, reviewed_at | 원문 ID와 생성 버전으로 번역 재사용. 실패 상태도 구별 |
 | ingestion_jobs | id, target, job_kind, status, checkpoint, attempts, error_code, updated_at | 목록 발견·다운로드·추출·색인의 재개 상태 |
@@ -42,7 +43,11 @@
 6. 검색 색인에 추가하고 새 색인 세대를 발행한다.
 
 파일 저장 후 DB 커밋이 실패하면 정리 대상으로 기록한다. 파일 복사·DB 기록·색인 공개 사이의 중단을 복구할 수 있어야 한다.
-본문 추출이 불가능한 스캔 PDF는 OCR 필요 상태로 표시한다. OCR 텍스트에는 처리 방법·버전·페이지를 남긴다.
+로컬 OCR은 1차 기능이다. 스캔 PDF는 페이지별 OCR로 처리하고 혼합 PDF는 기존 텍스트 추출과 OCR 경로를 구분한다. 페이지 상태는 pending/running/succeeded/needs_review/failed로 보존한다. 검토 상태와 처리 성공은 별개로 판별한다.
+
+근거 문단의 locator는 PDF 페이지와 가능한 경우 원본 페이지의 영역 좌표, 추출 페이지 ID를 포함한다. OCR 원시 결과와 교정 결과를 보존하고 문단은 해당 원문 버전에 연결한다. OCR 엔진이나 교정 본문을 바꾸면 새 원문 버전으로 기록해 과거 검색 근거를 유지한다. 전체 추출 텍스트로 좌표를 계산할 때 문단 오프셋도 검증한다.
+
+파일 처리 상태는 일부 페이지 성공과 전체 성공을 구분한다. 실패 페이지는 재시도할 수 있고 미처리 페이지를 포함한 파일을 완전 수집으로 표시하지 않는다. 엔진·언어 모델은 실제 샘플 평가 후 선택하며 OCR 원문을 외부 서비스로 전송하지 않는다.
 
 ## 검색 색인
 
@@ -95,5 +100,11 @@
 - 파일은 여러 문헌판에서 참조할 수 있다. 문헌 삭제 시 실제 파일 참조를 검사한다.
 - 사용자가 삭제한 문헌은 일반 검색에서 제외하고 복구 가능한 보관 상태를 둔다. 영구 삭제는 과거 검색 근거 영향과 함께 별도 처리한다.
 - 공개 GitHub에는 앱 코드·설계·권리 확인된 테스트 자료만 저장한다. 수집 원문·사용자 문서·DB·검색 기록은 저장하지 않는다.
+
+## 2차 종합 답변의 확장 지점
+
+1차 출시 후 answer_runs와 answer_citations를 추가한다. 답변 실행은 사용한 검색 실행 ID·질의·원문/번역 버전·로컬 모델 revision·프롬프트 revision·생성 본문·완료 상태를 보존한다. 인용은 답변 내 위치와 근거 문단 ID를 연결하고 인용 구절이 보존 본문에 존재하는지 검증한다.
+
+답변 캐시는 근거 집합과 모델·프롬프트 버전이 일치할 때만 재사용한다. 생성 실패를 유효한 답변으로 저장하지 않으며 원문과 모델 출력의 구분을 유지한다. GraphDB 연결은 이 기능의 필수 실행 조건이 아니다.
 
 공식 참고. https://www.sqlite.org/fts5.html 및 https://www.sqlite.org/foreignkeys.html
