@@ -18,6 +18,7 @@
 - [A 연구실형 UI 검증 보고](docs/ui-verification.md)
 - [발견 목록·제한 수집 검증](docs/collection-verification.md)
 - [발견 원문 이어 수집·확대 보관소 검증](docs/corpus-fill-verification.md)
+- [50문항 검색·번역 평가와 인간 검토 방법](docs/quality-evaluation.md)
 - [공식 공개 목록 조사](docs/source-discovery-research.md)
 
 ## A 연구실형 앱 실행
