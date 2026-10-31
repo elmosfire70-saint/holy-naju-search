@@ -143,7 +143,7 @@ class SearchTests(unittest.TestCase):
         db.commit()
         db.close()
         with Library(root) as migrated:
-            self.assertEqual(migrated.db.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(migrated.db.execute("PRAGMA user_version").fetchone()[0], 4)
             self.assertEqual(migrated.db.execute("SELECT title FROM documents WHERE id='legacy'").fetchone()[0], "Preserved")
             self.assertFalse(search(migrated, "anything")["hits"])
             self.assertTrue(migrated.check()["ok"])

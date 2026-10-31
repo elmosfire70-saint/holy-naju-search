@@ -14,6 +14,14 @@
     {"id":"catechism","url":"https://www.vatican.va/archive/ccc/index.htm","status":"entry_verified"},
     {"id":"naju-messages","url":"https://najumary.or.kr/Messages1/","status":"entry_verified"}
   ],
+  "collection_scopes": [
+    {"id":"naju-messages","source":"naju","label":"나주 사랑의 메시지 · 한국어","language":"ko","strategy":"naju","seed_url":"https://najumary.or.kr/Messages1/","note":"발견 목록은 서문 등 관련 항목도 포함할 수 있다. 목록 순회와 원문 보관 완료는 별도다."},
+    {"id":"vatican-ii-en","source":"vatican","label":"제2차 바티칸 공의회 · 영어 우선","language":"en","strategy":"vatican_ii","seed_url":"https://www.vatican.va/archive/hist_councils/ii_vatican_council/index.htm","note":"공식 목록에서 영어 HTML만 우선 발견한다. 다른 언어·PDF는 이 범위에 포함하지 않는다."},
+    {"id":"vatican-i-it","source":"vatican","label":"제1차 바티칸 공의회 · 이탈리아어 우선","language":"it","strategy":"vatican_i","seed_url":"https://www.vatican.va/archive/hist_councils/i-vatican-council/index.htm","note":"공식 목록의 이탈리아어 두 헌장 우선. 라틴어 및 다른 공식 경로는 별도다."},
+    {"id":"catechism-en","source":"vatican","label":"가톨릭 교리서 · 영어 IntraText","language":"en","strategy":"catechism","seed_url":"https://www.vatican.va/archive/ENG0015/_INDEX.HTM","note":"차례의 본문 링크만 대상으로 하며 단어/빈도/도움말 색인은 제외한다. 한국어 공식 판본과 자동 동일시하지 않는다."},
+    {"id":"encyclicals-en","source":"vatican","label":"주요 회칙 · 기존 영어 후보 3건","language":"en","strategy":"fixed","seed_url":null,"note":"priority_encyclicals의 기존 후보만 등록한다. 전체 주요 회칙의 확정 목록이 아니다."},
+    {"id":"trent-and-earlier","source":"vatican","label":"트리엔트 및 더 이전 공의회 · 조사 대기","language":"und","strategy":"unresolved","seed_url":null,"note":"공식 전체 원문 목록 진입점 미확인. 문헌 없음/공개 없음이라는 판정이 아니다."}
+  ],
   "samples": [
     {"id":"dei-verbum","source":"vatican","url":"https://www.vatican.va/archive/hist_councils/ii_vatican_council/documents/vat-ii_const_19651118_dei-verbum_en.html","expected_contains":["revelation","Scripture"],"min_characters":10000},
     {"id":"dei-filius","source":"vatican","url":"https://www.vatican.va/archive/hist_councils/i-vatican-council/documents/vat-i_const_18700424_dei-filius_it.html","languages":"ita","expected_contains":["Dio"],"min_characters":5000},

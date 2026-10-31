@@ -8,6 +8,7 @@ import tempfile
 from urllib.parse import parse_qs, quote, urlsplit
 
 from holy_naju.local_models import LocalModelError
+from holy_naju.collections import collect, initialize, summary, task_list
 from holy_naju.search import get_run, history, search
 from holy_naju.storage import Library, MAX_FILE_BYTES, MEDIA_TYPES, file_hash
 from holy_naju.translation import get_translation, translate_passage
@@ -40,8 +41,8 @@ class LocalServer(ThreadingHTTPServer):
 
     def __init__(self, root="data/library", port=8766):
         self.root = Path(root).resolve()
-        with Library(self.root):
-            pass
+        with Library(self.root) as library:
+            initialize(library)
         super().__init__(("127.0.0.1", port), Handler)
 
 
@@ -130,6 +131,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, {"error": "internal_error"})
 
     def _get(self, library, path):
+        if path == "/api/collections":
+            return summary(library)
+        if path.startswith("/api/collections/"):
+            return task_list(library, path.removeprefix("/api/collections/"))
         if path == "/api/library":
             return library.list_documents()
         if path == "/api/history":
@@ -145,6 +150,11 @@ class Handler(BaseHTTPRequestHandler):
         raise KeyError(path)
 
     def _post(self, library, path, payload):
+        if path == "/api/collect":
+            if (payload.keys() - {"scope_id", "retry"} or not isinstance(payload.get("scope_id"), str)
+                    or type(payload.get("retry", False)) is not bool):
+                raise ValueError("invalid_collection_fields")
+            return collect(library, payload["scope_id"], pages=1, documents=1, retry=payload.get("retry", False))
         if path == "/api/search":
             allowed = {"query", "source", "language", "document_type", "issued_from", "issued_to",
                        "mode", "limit", "refresh", "retrieval"}

@@ -147,7 +147,7 @@ class LocalModelTests(unittest.TestCase):
         legacy = sqlite3.connect(root / "library.sqlite3")
         for name in ("001_documents.sql", "002_search.sql"):
             legacy.executescript(Path("holy_naju/migrations", name).read_text(encoding="utf-8"))
-        # 버전 2에 존재하던 문헌·검색 행만 옮겨 버전 3 전환을 실제로 거친다.
+        # 버전 2에 존재하던 문헌·검색 행만 옮겨 현재 스키마 전환을 실제로 거친다.
         tables = ("sources", "documents", "editions", "assets", "ingestion_jobs", "acquisitions",
                   "document_versions", "extraction_pages", "passages", "index_generations",
                   "search_runs", "search_hits", "search_history")
@@ -160,7 +160,7 @@ class LocalModelTests(unittest.TestCase):
         legacy.commit()
         legacy.close()
         with Library(root) as migrated:
-            self.assertEqual(migrated.db.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(migrated.db.execute("PRAGMA user_version").fetchone()[0], 4)
             again = search(migrated, "Prayer")
             self.assertTrue(again["reused"])
             self.assertEqual(first["id"], again["id"])

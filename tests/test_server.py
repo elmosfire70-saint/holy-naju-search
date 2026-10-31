@@ -138,6 +138,19 @@ class ServerTests(unittest.TestCase):
                 self.request("/")
             send.assert_called_once()
 
+    def test_collection_status_and_bounded_api(self):
+        response = self.request("/api/collections")
+        self.assertEqual(response[0], 200)
+        self.assertFalse(response[1]["complete"])
+        scopes = response[1]["scopes"]
+        self.assertTrue(any(scope["discovery_status"] == "entry_unverified" for scope in scopes))
+        self.assertEqual(self.request("/api/collections/naju-messages")[0], 200)
+        self.assertEqual(self.request("/api/collections/unknown")[0], 404)
+        self.assertEqual(self.request("/api/collect", {"scope_id": "naju-messages", "pages": 1000})[0], 400)
+        with patch("holy_naju.server.collect", return_value={"results": [], "summary": {}}) as collector:
+            self.assertEqual(self.request("/api/collect", {"scope_id": "naju-messages", "retry": True})[0], 200)
+            self.assertEqual(collector.call_args.kwargs, {"pages": 1, "documents": 1, "retry": True})
+
 
 if __name__ == "__main__":
     unittest.main()

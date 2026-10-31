@@ -5,7 +5,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;',
 const sourceName = value => ({vatican:'교황청',naju:'나주',user_import:'가져온 파일'}[value] || value);
 const time = value => value ? new Date(value).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}) : '시각 미확인';
 let screen='search', run=null, hits=[], selected=null, passage=null, translation=null, documents=[], records=[];
-let viewTicket=0, readerTicket=0, translationTicket=0, searching=false, importing=false;
+let viewTicket=0, readerTicket=0, translationTicket=0, searching=false, importing=false, collecting=false;
 
 async function api(path, payload, upload=false) {
   const options=payload===undefined ? {} : {method:'POST',headers:{'Content-Type':upload?'application/octet-stream':'application/json','X-Holy-Naju':'1'},body:upload?payload:JSON.stringify(payload)};
@@ -107,10 +107,11 @@ async function loadLibrary() {
     if(ticket!==viewTicket)return;
     $('documents').innerHTML=value.length?value.map((doc,index)=>`<section class="row"><div><span class="chip">${esc(sourceName(doc.source))}</span><h3>${esc(doc.title)}</h3><small>${esc(doc.language)} · ${doc.passages}문단 · ${doc.versions}버전</small></div><div><span class="chip ${doc.status==='partial'?'caution':''}">${doc.status==='partial'?'부분 추출 · 확인 필요':'추출 완료 · 내용 미검토'}</span><button data-document="${index}">문헌 열기</button></div></section>`).join(''):'<p>보관한 문헌이 없습니다. 파일을 가져오거나 CLI로 자료를 준비하세요.</p>';
     status('library-status',`${value.length}개 문헌판. 출처·보관 상태를 확인하세요.`);
+    await loadCollections();
   }catch(error){if(ticket===viewTicket)status('library-status',`자료실 오류. ${error.message}`,true);}
 }
-async function openVersion(index) {
-  const doc=documents[index],ticket=viewTicket;status('library-status','문헌의 현재 보관 버전을 여는 중입니다.');
+async function openVersion(versionId,title) {
+  const doc={current_version_id:versionId,title},ticket=viewTicket;status('library-status','문헌의 보관 버전을 여는 중입니다.');
   try{const value=await api('/api/versions/'+encodeURIComponent(doc.current_version_id));if(ticket!==viewTicket)return;
     $('version-view').innerHTML=`<section class="panel"><h2>${esc(doc.title)}</h2><p class="muted">버전 ${esc(value.version.id)} · ${esc(value.version.status)} · ${value.passages.length}문단</p><p class="muted">${value.pages.length?`${value.pages.length}개 추출 페이지. OCR 미검토/실패 페이지는 원본과 대조하세요.`:'HTML/TXT/DOCX 추출 문단. 공식 문단 번호와 다를 수 있습니다.'}</p><div class="passages">${value.passages.map(p=>`<button data-passage="${esc(p.id)}">${p.ordinal}. ${esc(p.text.slice(0,100))}</button>`).join('')}</div></section>`;status('library-status','문단을 선택하면 보관 원문과 대응 번역을 엽니다.');$('version-view').scrollIntoView({behavior:'smooth',block:'start'});
   }catch(error){if(ticket===viewTicket)status('library-status',`문헌 열기 실패. ${error.message}`,true);}
@@ -120,6 +121,31 @@ async function loadHistory() {
   try{const value=await api('/api/history');if(ticket!==viewTicket)return;records=value;
     $('history').innerHTML=value.length?value.map((item,index)=>`<section class="row"><div><span class="chip">${item.reused?'재사용 요청':'검색 요청'}</span><h3>${esc(item.query_original)}</h3><small>${esc(time(item.accessed_at))} · 실제 ${esc(item.retrieval)} · 최초 ${esc(time(item.searched_at))}</small><p class="muted">조건 ${esc(JSON.stringify(item.filters))}</p></div><div class="actions"><button data-history="${index}">당시 결과 열기</button><button data-rerun="${index}">현재 보관 자료로 재검색</button></div></section>`).join(''):'<p>아직 검색 기록이 없습니다.</p>';status('history-status',`최근 ${value.length}개 요청을 표시합니다.`);
   }catch(error){if(ticket===viewTicket)status('history-status',`기록 오류. ${error.message}`,true);}
+}
+async function loadCollections() {
+  const ticket=viewTicket;
+  try{const value=await api('/api/collections');if(ticket!==viewTicket)return;
+    const discovery={entry_unverified:'진입점 미확인',configured_subset:'설정 후보만 등록',visible_links_processed:'발견된 목록 링크 처리',incomplete:'목록 조사 진행/대기'};
+    $('collection-scopes').innerHTML=value.scopes.map(scope=>`<section class="row"><div><h3>${esc(scope.label)}</h3><span class="chip ${scope.strategy==='unresolved'?'caution':''}">${esc(discovery[scope.discovery_status])}</span><p>발견 ${scope.discovered} · 보관 연결 ${scope.linked} · 완전 추출 ${scope.extracted} · 문헌 대기 ${scope.pending} · 문헌 문제 ${scope.problems}</p><p class="muted">목록 처리 ${scope.lists_done}/${scope.lists_total} · 목록 대기 ${scope.lists_pending} · 목록 문제 ${scope.lists_problems}</p><p class="muted">${esc(scope.note)}</p></div><div class="actions"><button data-collection-list="${esc(scope.id)}">상태 목록</button>${scope.strategy==='unresolved'?'':`<button data-collect="${esc(scope.id)}" ${collecting?'disabled':''}>제한 수집 이어가기</button><button data-collect-retry="${esc(scope.id)}" ${collecting?'disabled':''}>문제 재시도</button>`}</div></section>`).join('');
+  }catch(error){if(ticket===viewTicket)status('collection-status',`수집 상태를 열지 못했습니다. ${error.message}`,true);}
+}
+async function showCollection(scopeId) {
+  const ticket=viewTicket;
+  try{const value=await api('/api/collections/'+encodeURIComponent(scopeId));if(ticket!==viewTicket)return;
+    const labels={pending:'대기',running:'처리 중',done:'처리 완료',partial:'부분 추출',failed:'실패',blocked:'접근/정책 보류'};
+    $('collection-details').innerHTML=`<h3>상태 목록 ${value.shown}/${value.total} · 문제 우선, 최대 200개</h3>`+value.tasks.map(task=>`<section class="row"><span class="chip">${task.kind==='list'?'목록 페이지':'문헌 URL'} · ${esc(labels[task.state])}</span><p>${esc(task.title || '제목 확인 전')}</p><a href="${esc(task.url)}" target="_blank" rel="noopener noreferrer">${esc(task.url)}</a>${task.error?`<p class="warning">${esc(task.error)}</p>`:''}${task.version_id?`<button data-collection-version="${esc(task.version_id)}" data-title="${esc(task.title)}">보관 버전 열기</button>`:''}</section>`).join('');
+  }catch(error){if(ticket===viewTicket)status('collection-status',`목록 열기 실패. ${error.message}`,true);}
+}
+async function runCollection(scopeId,retry) {
+  if(collecting)return;collecting=true;const ticket=viewTicket;
+  document.querySelectorAll('[data-collect],[data-collect-retry]').forEach(button=>button.disabled=true);
+  status('collection-status','공식 robots와 요청 간격을 확인하며 제한 수집 중입니다. 검색 요청과는 별개입니다.');
+  try{const value=await api('/api/collect',{scope_id:scopeId,retry});if(ticket!==viewTicket)return;
+    await loadLibrary();await showCollection(scopeId);
+    const problems=value.results.filter(task=>['failed','blocked','partial'].includes(task.state));
+    status('collection-status',`이번 처리 ${value.results.length}개 · 문제 ${problems.length}개. ${value.stopped==='access_or_policy_blocked'?'접근/정책 제한으로 중단했습니다.':'한도 또는 대기열 끝에서 멈췄습니다.'} 전체 수집 완료가 아닙니다.`,Boolean(problems.length));
+  }catch(error){if(ticket===viewTicket)status('collection-status',`수집 요청 실패. ${error.message}`,true);}
+  finally{collecting=false;document.querySelectorAll('[data-collect],[data-collect-retry]').forEach(button=>button.disabled=false);}
 }
 async function openRun(id, query=null, refresh=false, passageId=null, translationId=null) {
   const ticket=nav('search');status('search-status','당시 검색 결과를 여는 중입니다.');
@@ -133,7 +159,10 @@ document.addEventListener('click',async event=>{
   const button=event.target.closest('button');if(!button)return;
   if(button.dataset.screen){nav(button.dataset.screen);if(screen==='library')await loadLibrary();if(screen==='history')await loadHistory();}
   else if(button.dataset.hit!==undefined)await openPassage(hits[Number(button.dataset.hit)].passage_id,null,true);
-  else if(button.dataset.document!==undefined)await openVersion(Number(button.dataset.document));
+  else if(button.dataset.document!==undefined){const doc=documents[Number(button.dataset.document)];await openVersion(doc.current_version_id,doc.title);}
+  else if(button.dataset.collectionList)await showCollection(button.dataset.collectionList);
+  else if(button.dataset.collect||button.dataset.collectRetry)await runCollection(button.dataset.collect || button.dataset.collectRetry,Boolean(button.dataset.collectRetry));
+  else if(button.dataset.collectionVersion)await openVersion(button.dataset.collectionVersion,button.dataset.title);
   else if(button.dataset.passage){nav('search');run=null;hits=[];status('search-status','자료실에서 선택한 문단 · 검색 실행이 아닙니다.');await openPassage(button.dataset.passage,null,true);}
   else if(button.dataset.history!==undefined||button.dataset.rerun!==undefined){const item=records[Number(button.dataset.history ?? button.dataset.rerun)];await openRun(item.run_id,item.query_original,button.dataset.rerun!==undefined);}
   else if(button.dataset.action==='translate'||button.dataset.action==='retranslate')await translate(button.dataset.action==='retranslate');

@@ -16,6 +16,8 @@
 - [키워드 검색 검증 보고](docs/search-verification.md)
 - [로컬 다국어 검색·번역 검증 보고](docs/local-model-verification.md)
 - [A 연구실형 UI 검증 보고](docs/ui-verification.md)
+- [발견 목록·제한 수집 검증](docs/collection-verification.md)
+- [공식 공개 목록 조사](docs/source-discovery-research.md)
 
 ## A 연구실형 앱 실행
 
@@ -34,6 +36,23 @@
 - 원본 HTML을 앱 안에서 실행하지 않는다. 보관 파일은 다운로드로 제공하며 PDF 페이지 번호는 원문 영역에서 확인한다. PDF 내부 페이지 뷰어는 아직 없다.
 
 모델이 꺼져 있으면 새 의미 검색은 진단과 함께 키워드로 대체될 수 있고 새 번역은 실패할 수 있다. 원문과 저장 기록/번역은 계속 열 수 있다. 전체 수집은 별도 단계이며 화면에 보이는 보관 건수가 전체 문헌 수를 뜻하지 않는다.
+
+## 공식 자료 발견과 제한 수집
+
+자료실의 **공식 자료 수집 범위·상태**를 열면 범위별 발견 URL·보관 연결·대기·문제와 미확인 진입점을 볼 수 있다. `제한 수집 이어가기`는 한 번에 목록 1개·문헌 1개를 순차 처리하고 멈춘다. `상태 목록`에서 URL과 문제를 확인하고 해당 보관 버전을 연다. `문제 재시도`는 이전 실패/보류/부분 상태를 다시 대기열에 넣는다.
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 scripts/collect_sources.py status
+.\.venv\Scripts\python.exe -X utf8 scripts/collect_sources.py tasks naju-messages
+.\.venv\Scripts\python.exe -X utf8 scripts/collect_sources.py run naju-messages --pages 2 --documents 3
+.\.venv\Scripts\python.exe -X utf8 scripts/collect_sources.py run vatican-ii-en --pages 1 --documents 2 --retry
+```
+
+CLI는 각 실행의 목록/문헌 상한을 0~20개로 제한한다. 기본은 각각 1개다. `--refresh`는 해당 범위의 처리 완료 항목을 다시 대기열에 넣어 현재 파일을 확인한다. 기존 보관 버전/과거 검색은 지우지 않지만 상한 이후 항목은 계속 대기하므로 한 번의 명령이 전체 갱신 완료를 뜻하지 않는다.
+
+현재 자동 경로는 나주 한국어 목록, 제2차 공의회 영어 HTML, 제1차 공의회 이탈리아어 HTML, 영어 교리서 본문, 기존 영어 회칙 후보 3개다. 다른 언어/PDF와 트리엔트 이전의 공식 전체 진입점은 자동 편입하지 않는다. 목록에 있는 서문·절 단위 URL을 하나의 독립된 메시지/저작물로 단정하지 않는다.
+
+실행마다 robots를 확인하고 최소 2초 간격을 지킨다. HTTP 접근 제한·robots 실패·차단 화면에서는 멈추며 인증/캡차를 우회하지 않는다. 리디렉션은 자동 추종하지 않고 검토 대상으로 남긴다. 목록 스냅샷·시각·해시는 로컬 `data/library/collection-evidence/`와 DB 시도 기록에 보존한다. 새 번역이나 임베딩은 수집 중 만들지 않아, 자료 추가 후 첫 의미 검색에 임베딩 생성 시간이 들 수 있다.
 
 ## 로컬 추출 검증
 

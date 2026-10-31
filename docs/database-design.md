@@ -2,7 +2,7 @@
 
 목표 논리 설계와 현재 구현 범위를 함께 기록한다. 개인 PC용 원본 DB는 SQLite이며 초기 마이그레이션은 `holy_naju/migrations/001_documents.sql`에 구현했다. GraphDB는 같은 ID와 근거를 사용하는 후속 검색·탐색 저장소로 확장한다.
 
-스키마 버전 1은 sources, documents, editions, assets, ingestion_jobs, acquisitions, document_versions, extraction_pages, passages다. 버전 2에서 index_generations, search_state, passage_fts, search_runs, search_hits, search_history를 추가했다. 버전 3은 embeddings, passage_embeddings, translations 및 search_runs의 retrieval/model_profile을 추가한다. 교정 관련 추가 필드는 해당 기능 구현 시 확장한다. 지원하지 않는 DB 버전은 수정하지 않고 거부한다.
+스키마 버전 1은 sources, documents, editions, assets, ingestion_jobs, acquisitions, document_versions, extraction_pages, passages다. 버전 2에서 index_generations, search_state, passage_fts, search_runs, search_hits, search_history를 추가했다. 버전 3은 embeddings, passage_embeddings, translations 및 search_runs의 retrieval/model_profile을 추가한다. 버전 4는 collection_scopes, collection_tasks, collection_attempts를 추가한다. 교정 관련 추가 필드는 해당 기능 구현 시 확장한다. 지원하지 않는 DB 버전은 수정하지 않고 거부한다.
 
 ## 식별과 버전
 
@@ -85,6 +85,18 @@
 번역 캐시는 문단 ID·원문 해시·목표 언어(현재 한국어 고정)·모델 digest/런타임/옵션·프롬프트 버전으로 구분한다. 완료 출력과 실패 기록을 보존하며 실패는 재사용하지 않는다. 원문 버전은 수정하지 않는다. 완료는 생성 처리의 완료일 뿐 내용의 승인이나 정확도 판정이 아니다. 새 번역의 검토 상태는 항상 unreviewed다.
 
 모델 태그가 바뀌면 새 digest 프로필로 생성한다. 호출 후 digest도 재확인한다. 모델이 꺼져 있으면 신규 번역은 오류이고 신규 결합 검색은 진단을 포함한 키워드 대체 경로다. 과거 검색/번역 ID 열기는 모델 없이 동작한다.
+
+## 수집 범위와 발견 목록
+
+`collection_scopes`는 출처·언어·전략·시작점과 미확인 범위의 설명을 보존한다. `collection_tasks`는 범위 내에서 유일한 URL과 목록/문헌 구분, 발견 부모 목록 ID, 상태·오류·연결 원문 버전을 보존한다. `collection_attempts`는 시도별 시각·완료 상태·응답 해시·로컬 증거 경로·버전·오류를 남긴다. 목록이 반복/비어 있거나 형식이 달라지면 성공 종료로 간주하지 않는다.
+
+문헌 URL은 기존 `Library.import_file`의 파일·문헌판·원문 버전으로 연결한다. 이전에 보관한 같은 공식 URL/언어는 새 다운로드 없이 발견 목록에 연결할 수 있다. 원문 변경은 새 버전이고 실패한 갱신은 이전 version_id를 지우지 않는다. 범위로 식별한 미분류 자료만 임시 문헌 종류를 부여하고 `needs_review`를 유지한다. 사람이 검토한 메타데이터를 덮어쓰지 않는다.
+
+작업자는 보관소별 별도 SQLite 잠금 파일에서 배타 잠금을 잡아 직렬 실행한다. 네트워크 호출 동안 원본 DB 쓰기 잠금을 유지하지 않는다. 프로세스 종료 시 잠금은 해제되고 다음 작업자는 수집의 running 상태를 재개한다. 파일 가져오기 자체의 전원 장애·미등록 자산·중단 작업 복구는 기존 보관소 점검/후속 운영 검증의 범위이며, 이 작업 상태 재개만으로 완전 복구를 보증하지 않는다.
+
+`collection-evidence`는 robots와 목록/응답 원본을 보존한다. 파일명은 본문 SHA256이며 존재하는 HTML 증거가 해시와 다르면 덮어쓰지 않는다. 사용자 원문은 기존 assets에 연결한다. 백업/복원 설계에는 DB·assets 외에 이 수집 증거도 포함해야 하며, 잠금 DB는 재생성 가능한 실행 파일이다.
+
+발견 문헌 수와 목록 페이지 수, 보관 연결과 최근 실패 수는 별도 지표다. 일부 원문은 이미 연결돼 있어도 최근 갱신이 실패할 수 있다. 발견 수를 전체 역사 문헌 수나 확정 수집률 분모로 사용하지 않는다.
 
 ## GraphDB 확장 경계
 

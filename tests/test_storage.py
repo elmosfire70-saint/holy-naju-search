@@ -28,7 +28,7 @@ class StorageTests(unittest.TestCase):
 
     def test_schema_is_idempotent_and_foreign_keys_are_enforced(self):
         with Library(self.root / "library") as again:
-            self.assertEqual(again.db.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(again.db.execute("PRAGMA user_version").fetchone()[0], 4)
             self.assertEqual(again.db.execute("SELECT count(*) FROM sources").fetchone()[0], 3)
             with self.assertRaises(sqlite3.IntegrityError):
                 with again.db:
@@ -54,10 +54,10 @@ class StorageTests(unittest.TestCase):
 
     def test_newer_schema_is_rejected_without_resetting_data(self):
         result = self.library.import_file(self.path)
-        self.library.db.execute("PRAGMA user_version=4")
-        with self.assertRaisesRegex(ValueError, "unsupported_schema_version:4"):
+        self.library.db.execute("PRAGMA user_version=5")
+        with self.assertRaisesRegex(ValueError, "unsupported_schema_version:5"):
             Library(self.root / "library")
-        self.assertEqual(self.library.db.execute("PRAGMA user_version").fetchone()[0], 4)
+        self.assertEqual(self.library.db.execute("PRAGMA user_version").fetchone()[0], 5)
         self.assertEqual(self.library.get_version(result["version_id"])["version"]["status"], "extracted")
 
     def test_source_update_and_old_reimport_do_not_erase_latest_version(self):
