@@ -1,0 +1,18 @@
+# 개인 연구 자료와 실행 산출물을 저장소에서 제외한다.
+/data/
+/models/
+/backups/
+/exports/
+/.scratch/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
+.venv/
+node_modules/
+dist/
