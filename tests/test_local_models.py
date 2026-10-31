@@ -90,6 +90,59 @@ class LocalModelTests(unittest.TestCase):
         self.assertEqual(result["hits"], [])
         self.assertEqual(self.client.embed_calls, 0)
 
+    def test_long_passage_context_limit_keeps_tail_evidence_and_original(self):
+        path = self.root / 'long.txt'
+        original = 'ordinary text. ' * 1500 + 'Eucharist tail evidence.'
+        path.write_text(original, encoding='utf-8')
+        document = self.library.import_file(path, language='en', title='Long source')
+        passage = self.library.get_version(document['version_id'])['passages'][0]
+        calls = []
+        def limited_embed(texts, profile):
+            calls.extend(texts)
+            if any(len(text.encode('utf-8')) > 2048 for text in texts):
+                raise LocalModelError('synthetic_context_length_exceeded')
+            return [[1.0, 0.0] if 'Eucharist' in text or '성체' in text else [0.0, 1.0] for text in texts]
+        with patch.object(self.client, 'embed', side_effect=limited_embed):
+            result = search(self.library, '성체', retrieval='hybrid', client=self.client)
+            self.assertEqual(result['retrieval'], 'hybrid')
+            matches = [h for h in result['hits'] if h['passage_id'] == passage['id']]
+            self.assertEqual(len(matches), 1)
+            self.assertEqual(matches[0]['version_id'], document['version_id'])
+            start, end = matches[0]['retrieval_signals']['semantic']['passage_range']
+            self.assertIn('Eucharist tail evidence.', original[start:end])
+            call_count = len(calls)
+            again = search(self.library, '성체', retrieval='hybrid', client=self.client)
+            self.assertEqual(result['id'], again['id'])
+            self.assertEqual(len(calls), call_count)
+        self.assertTrue(any('Eucharist tail evidence.' in text for text in calls))
+        stored = self.library.db.execute('SELECT text FROM passages WHERE id=?', (passage['id'],)).fetchone()[0]
+        self.assertEqual(stored, original)
+
+    def test_segment_ranges_cover_unicode_and_long_title_without_gaps(self):
+        from holy_naju.semantic import _segments
+        for text in ('', '짧은 글', '제목🙂' * 900 + '\n' + '한글 e\u0301 Latin 끝🙂 ' * 600):
+            covered = [False] * len(text)
+            previous_end = 0
+            for start, end, segment in _segments(text):
+                self.assertEqual(text[start:end], segment)
+                self.assertLessEqual(len(segment.encode('utf-8')), 2000)
+                self.assertLessEqual(start, previous_end)
+                self.assertGreater(end, previous_end)
+                covered[start:end] = [True] * (end-start)
+                previous_end = end
+            self.assertTrue(all(covered))
+            self.assertEqual(previous_end, len(text))
+
+    def test_new_ranking_revision_invalidates_runs_but_reuses_same_input_vectors(self):
+        with patch('holy_naju.semantic.HYBRID_REVISION', 'hybrid-rrf-1'):
+            old = search(self.library, '성체', retrieval='hybrid', client=self.client)
+        calls = self.client.embed_calls
+        current = search(self.library, '성체', retrieval='hybrid', client=self.client)
+        self.assertNotEqual(old['id'], current['id'])
+        self.assertEqual(self.client.embed_calls, calls)
+        self.assertEqual(get_run(self.library, old['id'])['hits'], old['hits'])
+        self.assertTrue(search(self.library, '성체', retrieval='hybrid', client=self.client)['reused'])
+
     def test_translation_preserves_original_and_model_revision(self):
         first = translate_passage(self.library, self.passage, client=self.client)
         second = translate_passage(self.library, self.passage, client=self.client)

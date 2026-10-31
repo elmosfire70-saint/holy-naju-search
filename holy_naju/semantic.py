@@ -8,7 +8,7 @@ from holy_naju.local_models import LocalModelError, OllamaClient
 from holy_naju.search import _ensure_index, _filter_sql, _ranked_hits, _save_run, _snapshot, get_run
 from holy_naju.storage import encode, now
 
-HYBRID_REVISION = "hybrid-rrf-1"
+HYBRID_REVISION = "hybrid-rrf-segment-max-2"
 EMBEDDING_REVISION = "title-passage-query-instruct-1"
 
 
@@ -68,11 +68,27 @@ def _input(text, model, query=False):
     return text
 
 
+def _segments(text):
+    # ponytail: 토크나이저 대신 2000 UTF-8 바이트/128문자 겹침이다. 인간 평가 후 문장·토큰 분할을 비교한다.
+    start, size = 0, 0
+    for end, char in enumerate(text):
+        width = len(char.encode('utf-8'))
+        if size + width > 2000:
+            yield start, end, text[start:end]
+            start = max(start + 1, end - 128)
+            size = len(text[start:end].encode('utf-8'))
+        size += width
+    if start < len(text):
+        yield start, len(text), text[start:]
+
+
 def prepare(library, rows, query, client, profile):
-    texts = [_input(row["title"] + "\n" + row["text"], profile["name"]) for row in rows]
+    segments = [(row, start, end, _input(text, profile["name"])) for row in rows
+                for start, end, text in _segments(row["title"] + "\n" + row["text"])]
+    texts = [part[3] for part in segments]
     hashes, vectors = _cached_vectors(library, texts, client, profile)
     with library.db:
-        for row, digest in zip(rows, hashes):
+        for (row, _, _, _), digest in zip(segments, hashes):
             embedding_id = library.db.execute("SELECT id FROM embeddings WHERE model_profile=? AND input_hash=?", (encode(profile), digest)).fetchone()[0]
             library.db.execute("INSERT OR IGNORE INTO passage_embeddings VALUES (?,?,?,?)",
                                (row["passage_id"], encode(profile), digest, embedding_id))
@@ -81,8 +97,14 @@ def prepare(library, rows, query, client, profile):
     if any(len(v) != len(query_vector) for v in vectors):
         raise LocalModelError("embedding_dimension_mismatch")
     # ponytail: 작은 문단 집합은 직접 코사인 유사도를 계산한다. 자료가 커지면 ANN 색인으로 전환한다.
-    ranked = [(row, math.fsum(a * b for a, b in zip(vector, query_vector))) for row, vector in zip(rows, vectors)]
-    return sorted(ranked, key=lambda item: (-item[1], item[0]["passage_id"]))
+    ranked = {}
+    for (row, start, end, _), vector in zip(segments, vectors):
+        score = math.fsum(a * b for a, b in zip(vector, query_vector))
+        if row['passage_id'] not in ranked or score > ranked[row['passage_id']][1]:
+            prefix = len(row['title']) + 1
+            span = [min(len(row['text']), max(0, point - prefix)) for point in (start, end)]
+            ranked[row['passage_id']] = (dict(row, _semantic_range=span), score)
+    return sorted(ranked.values(), key=lambda item: (-item[1], item[0]["passage_id"]))
 
 
 def _fuse(lexical, semantic, terms, limit):
@@ -94,11 +116,13 @@ def _fuse(lexical, semantic, terms, limit):
             item["signals"][label] = {"rank": rank}
             if similarity is not None:
                 item["signals"][label]["similarity"] = similarity
+                item["signals"][label]["passage_range"] = row["_semantic_range"]
     hits = []
     for item in sorted(combined.values(), key=lambda r: (-r["rrf"], r["row"]["passage_id"]))[:limit]:
         row = item["row"]
         row["score"] = -item["rrf"]
         row["retrieval_signals"] = item["signals"]
+        row.pop('_semantic_range', None)
         hits.append(_snapshot(row, terms))
     return hits
 
