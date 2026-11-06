@@ -2,6 +2,9 @@
 
 ## 2026-11-06 검색 중심 재설계
 
+- 다음 단계의 첫 구현은 공식 목록 후보 발견으로 제한한다. 기존 PublicClient를 수정하지 않고 재사용한다. 후보는 본문 미확인이며 실시간 검색 UI 완성으로 표시하지 않는다.
+- discovery 모듈/CLI와 테스트2개를 추가했다. `python -m unittest discover -s tests -p test_discovery.py -v` 통과. `python -m holy_naju.discovery '공동 구속자'` 실제 실행은 공식 목록에서 Mater Populi fidelis 영어판1개를 발견했다. DB 접근/문헌 본문 저장은 없고 robots 증거만 data/discovery-evidence에 남긴다. 영어 신앙교리부 목록 한정이며 자체 검색 JSON·본문 검증·DB 저장·UI는 미완료다.
+
 - 사용자 제보는 `공동 구속자`로 신앙교리부 `Mater Populi Fidelis`를 찾지 못한다는 것이다. 이번에는 원인 분석과 검색/DB 재설계부터 기록하며 실행 앱 변경 완료로 표시하지 않는다.
 - 실제 DB를 읽기 전용으로 열어 메모리에 복사한 후 기존 search 함수를 실행했다. 교황청 키워드 4종 모두 0건이고 제목/URL 직접 검사도 대상 0건이다. 첫 임시 폴더 재현은 sandbox 임시 디렉터리 접근 오류로 실패하여 디스크 쓰기 없는 메모리 복제로 바꿨다.
 - 전체668문헌판/15,375문단 중 교황청395판은 영어393/이탈리아어2이며 cfaith 경로는0이다. PRAGMA quick_check=ok, foreign_key_check=[]이므로 이번 누락을 DB 손상으로 단정할 근거가 없다.
