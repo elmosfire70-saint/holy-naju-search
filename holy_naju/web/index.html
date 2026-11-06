@@ -17,10 +17,11 @@
       <section id="screen-search">
         <h1>문헌 검색</h1>
         <form id="search-form">
-          <div class="search-bar"><label class="query">연구할 단어나 질문<input name="query" required maxlength="500" placeholder="예. 성경과 성전의 관계"></label><label>출처<select name="source"><option value="">전체 출처</option><option value="vatican">교황청</option><option value="naju">나주</option><option value="user_import">가져온 파일</option></select></label><label>찾는 방식<select name="method"><option value="hybrid">키워드 + 의미</option><option value="keyword">키워드</option><option value="phrase">정확한 구절</option></select></label><button class="primary" type="submit" id="search-button">검색</button></div>
+          <div class="search-bar"><label class="query">연구할 단어나 질문<input name="query" required maxlength="200" placeholder="예. 공동 구속자 또는 Mater Populi Fidelis"></label><label>출처<select name="source"><option value="">전체 출처</option><option value="vatican">교황청</option><option value="naju">나주</option><option value="user_import">가져온 파일</option></select></label><label>찾는 방식<select name="method"><option value="live">교황청 실시간 검색</option><option value="hybrid">보관 자료 · 키워드 + 의미</option><option value="keyword">보관 자료 · 키워드</option><option value="phrase">보관 자료 · 정확 구절</option></select></label><button class="primary" type="submit" id="search-button">검색</button></div>
+          <p class="muted" id="live-scope">검색어만 교황청에 전송합니다. 영어 자체 검색 첫 페이지·신앙교리부 영어 목록과 최대5개 원문을 확인하고 일치 문헌만 보관합니다. 공동 구속자 용어 확장 외 일반 한국어 번역 검색은 아직 지원하지 않습니다. 다른 원문은 제목/영문 용어로 검색하세요.</p>
           <details class="filters"><summary>언어·문헌 종류·발표일·결과 상한</summary><label>언어<select name="language"><option value="">전체 언어</option><option value="ko">한국어</option><option value="en">영어</option><option value="it">이탈리아어</option><option value="la">라틴어</option><option value="und">미확인</option></select></label><label>문헌 종류<input name="document_type" maxlength="100" placeholder="미분류는 unknown"></label><label>발표일부터<input type="date" name="issued_from"></label><label>발표일까지<input type="date" name="issued_to"></label><label>결과 상한<input name="limit" type="number" min="1" max="100" value="20" required></label><p class="muted">발표일을 모르는 문헌은 날짜 필터에서 제외됩니다. 검색은 현재 보관 자료만 대상으로 하며 사이트 재수집이 아닙니다.</p></details>
         </form>
-        <div id="search-status" class="status" role="status">한국어 질문이나 단어로 보관 자료를 검색하세요. 처음 의미 검색은 임베딩 생성으로 오래 걸릴 수 있습니다.</div>
+        <div id="search-status" class="status" role="status">교황청을 온라인으로 확인합니다. 나주·가져온 파일은 보관 자료 검색을 선택하세요.</div>
         <div class="split"><section aria-label="검색 결과"><h2>근거 문단</h2><div id="results"><p class="muted">검색 결과를 선택하면 오른쪽에서 근거를 읽을 수 있습니다.</p></div></section><article class="panel" id="reader" aria-label="선택한 근거 대조"><h2>원문과 한국어 번역</h2><p class="muted">아직 선택한 문단이 없습니다.</p></article></div>
       </section>
       <section id="screen-library" hidden>
@@ -29,7 +30,7 @@
         <form id="import-form" class="panel"><h2>파일 가져오기</h2><div class="search-bar"><label class="query">PDF·TXT·HTML·DOCX 파일<input type="file" name="file" accept=".pdf,.txt,.html,.htm,.docx" required></label><label>문서 언어<select name="language"><option value="ko">한국어</option><option value="en">영어</option><option value="it">이탈리아어</option><option value="la">라틴어</option><option value="und">미확인</option></select></label><label>제목 · 선택<input name="title" maxlength="500"></label><button type="submit" class="primary" id="import-button">가져오기</button></div><p class="muted">최대 50MiB. 원본은 수정하지 않습니다. 스캔은 로컬 영어·한국어 OCR로 처리하며 부분 추출과 미검토 상태를 구분합니다.</p></form>
         <div role="status" class="status" id="library-status"></div><div id="documents" class="rows"></div><div id="version-view"></div>
       </section>
-      <section id="screen-history" hidden><h1>검색 기록</h1><p class="muted">당시 결과는 원문 버전을 유지합니다. 현재 보관 자료로 재검색해도 웹사이트를 다시 수집하지 않습니다.</p><div role="status" class="status" id="history-status"></div><div id="history" class="rows"></div></section>
+      <section id="screen-history" hidden><h1>검색 기록</h1><p class="muted">당시 결과는 웹/모델 없이 보관 버전으로 엽니다. 교황청 최신 재검색은 새 온라인 확인이며, 보관 자료 재검색은 로컬 자료만 검색합니다.</p><div role="status" class="status" id="history-status"></div><div id="history" class="rows"></div></section>
     </main>
   </div>
   <footer>원문 · 모델 번역 · 가져온 파일의 출처를 구분하세요. 여러 문헌을 종합하는 AI 답변은 아직 제공하지 않습니다.</footer>

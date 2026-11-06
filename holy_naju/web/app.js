@@ -33,6 +33,7 @@ function locatorText(value) {
 }
 function formOptions() {
   const values=new FormData($('search-form')), method=values.get('method');
+  if(method==='live')return {query:String(values.get('query')).trim(),retrieval:'live'};
   const options={query:String(values.get('query')).trim(),mode:method==='phrase'?'phrase':'keyword',retrieval:method==='hybrid'?'hybrid':'keyword',limit:Number(values.get('limit'))};
   for(const name of ['source','language','document_type','issued_from','issued_to']) if(values.get(name)) options[name]=values.get(name);
   return options;
@@ -42,16 +43,27 @@ function fillForm(record, query=record.query_original) {
   for(const key of ['source','language','document_type','issued_from','issued_to']) form.elements[key].value=record.filters[key] || '';
   form.elements.method.value=record.mode==='phrase'?'phrase':record.retrieval;
   form.elements.limit.value=record.result_limit;
+  syncSearchMode();
+}
+function syncSearchMode(){
+  const form=$('search-form'),live=form.elements.method.value==='live';
+  form.querySelector('.filters').hidden=live;form.elements.source.disabled=live;
+  if(live)form.elements.source.value='vatican';
+  form.elements.query.maxLength=live?200:500;
+  $('live-scope').hidden=!live;
 }
 function updateHash() {
-  const params=new URLSearchParams();if(run)params.set('run',run.id);if(passage)params.set('passage',passage.passage_id || passage.id);if(translation?.id)params.set('translation',translation.id);
+  const params=new URLSearchParams();if(run)params.set(run.kind==='live'?'live':'run',run.id);if(passage)params.set('passage',passage.passage_id || passage.id);if(translation?.id)params.set('translation',translation.id);
   history.replaceState(null,'','#'+params.toString());
 }
 function renderResults() {
+  if(run?.kind==='live'){renderLiveResults();return;}
   const scroll=$('results').scrollTop;
   $('results').innerHTML=hits.length?hits.map((hit,index)=>`<button class="result" data-hit="${index}" aria-pressed="${selected===hit.passage_id}"><span class="chip">${esc(sourceName(hit.source))}</span><small>${esc(hit.language)}</small><h3>${esc(hit.title)}</h3><p>${highlight(hit.excerpt,hit.highlight_ranges)}</p><small>${esc(hit.issued_on || '발표일 미확인')} · ${esc(locatorText(hit.locator))}</small></button>`).join(''):'<p class="muted">조건에 맞는 근거 문단이 없습니다.</p>';
+  $('results').scrollTop=scroll;
 }
 async function performSearch(options) {
+  if(options.retrieval==='live')return performLive(options.query);
   if(searching)return;
   const ticket=nav('search');searching=true;$('search-button').disabled=true;
   status('search-status','보관 자료를 검색하고 있습니다. 첫 의미 검색은 모델 로딩·임베딩 생성 시간이 필요합니다.');
@@ -65,12 +77,59 @@ async function performSearch(options) {
     if(hits.length)await openPassage(hits[0].passage_id);else $('reader').innerHTML='<h2>원문 대조</h2><p class="muted">검색은 정상 완료했지만 근거가 없습니다.</p>';
   } catch(error) {if(ticket===viewTicket)status('search-status',`검색에 실패했습니다. 결과 없음과 다릅니다. ${error.message}${hits.length?' 아래 문단은 직전 결과이며 이번 검색 결과가 아닙니다.':''}`,true);}
   finally{searching=false;$('search-button').disabled=false;}
-  $('results').scrollTop=scroll;
+}
+function renderLiveResults(){
+  const labels={matched:'제목/용어 일치 · 내용 미검토',no_match:'일치 근거 없음 · 본문 미보관',failed:'검증/보관 실패'};
+  $('results').innerHTML=run.results.length?run.results.map(doc=>{
+    const blocks=liveBlocks(doc);
+    return `<section class="result"><span class="chip">교황청 · ${esc(doc.language)}</span><h3>${esc(doc.verified_title || doc.title)}</h3><p>${esc(labels[doc.verification_status] || doc.verification_status)}</p><small>확인 ${esc(time(doc.checked_at))} · ${doc.discovery_method==='official_catalog'?'공식 목록 보완':'자체 검색'}</small><div class="live-passages">${blocks.map(b=>`<button data-live-passage="${esc(b.id)}" aria-pressed="${selected===b.id}">추출 블록 ${b.ordinal} · ${esc(b.text.slice(0,72))}…</button>`).join('')}${doc.version_id&&!blocks.length?`<button data-live-version="${esc(doc.version_id)}" data-title="${esc(doc.title)}">보관 원문 열기</button>`:''}</div>${doc.error?`<p class="warning">${esc(doc.error)}</p>`:''}</section>`;
+  }).join(''):'<p class="muted">확인한 범위에 후보가 없습니다. 전체 교황청 자료의 부재 판정이 아닙니다.</p>';
+}
+function liveBlocks(doc){return [...(doc.reader_passages || [])].sort((a,b)=>Number(!/^\d+\./.test(a.text))-Number(!/^\d+\./.test(b.text)) || a.ordinal-b.ordinal);}
+async function showLiveRun(value,ticket,passageId=null,translationId=null){
+  if(ticket!==viewTicket)return;
+  run={...value,kind:'live'};hits=[];selected=null;passage=null;translation=null;
+  for(const doc of value.results){
+    for(const {id} of liveBlocks(doc)){
+      hits.push({passage_id:id,title:doc.verified_title || doc.title,source:'vatican',canonical_url:doc.url,
+        highlight_ranges:[],original_ranges:doc.stored_evidence.filter(e=>e.passage_id===id).map(e=>[e.start,e.end])});
+    }
+  }
+  const form=$('search-form');form.elements.method.value='live';form.elements.query.value=value.query || value.query_original;syncSearchMode();
+  const bad=['failed','partial','interrupted','running'].includes(value.status);
+  status('search-status',`실시간 검색 기록 · ${value.status} · ${value.results.filter(d=>d.verification_status==='matched').length}개 일치 문헌\n검색 ${time(value.started_at)} · 종료 ${time(value.finished_at)}\n영어 자체 검색 첫 페이지 + 신앙교리부 목록 · 원문 최대5개 확인. 전체 검색 완료/정확도 승인이 아닙니다.${value.error?'\n'+value.error:''}${value.errors?.length?'\n문제 '+value.errors.map(e=>e.stage+': '+e.error).join(' / '):''}`,bad);
+  renderResults();updateHash();
+  await loadLibrary();if(ticket!==viewTicket)return;
+  if(passageId&&!hits.some(h=>h.passage_id===passageId))throw new Error('검색 기록에 속하지 않는 문단입니다.');
+  const id=passageId || hits[0]?.passage_id;
+  if(id)await openPassage(id,translationId);else $('reader').innerHTML='<h2>확인할 근거 문단이 없습니다.</h2><p>실패/미일치 상태와 검색 범위를 확인하세요.</p>';
+}
+async function openLiveRun(id,passageId=null,translationId=null){
+  const ticket=nav('search');status('search-status','당시 실시간 검색 기록을 여는 중입니다. 웹/모델을 호출하지 않습니다.');
+  try{await showLiveRun(await api('/api/live/runs/'+encodeURIComponent(id)),ticket,passageId,translationId);}
+  catch(error){if(ticket===viewTicket)status('search-status','기록 열기 실패. '+error.message,true);}
+}
+async function performLive(query){
+  if(searching)return;searching=true;const ticket=nav('search');$('search-button').disabled=true;
+  run=null;hits=[];selected=null;passage=null;translation=null;renderResults();updateHash();
+  $('reader').innerHTML='<h2>공식 원문을 확인하고 있습니다.</h2><p>다른 화면으로 이동해도 서버에서 검색/보관은 계속됩니다.</p>';
+  status('search-status','새 온라인 검색을 시작합니다. 수십 초 이상 걸릴 수 있습니다.');
+  try{
+    let job=await api('/api/live/search',{query});
+    while(job.status==='running'){
+      if(ticket===viewTicket)status('search-status',job.stage+'\n화면 이동/새로고침은 서버 검색을 취소하지 않습니다.');
+      await new Promise(resolve=>setTimeout(resolve,1000));
+      job=await api('/api/live/jobs/'+encodeURIComponent(job.id));
+    }
+    if(job.status==='failed')throw new Error(job.error);
+    if(ticket===viewTicket)await showLiveRun(await api('/api/live/runs/'+encodeURIComponent(job.run_id)),ticket);
+  }catch(error){if(ticket===viewTicket)status('search-status','실시간 검색 실패. 결과0과 다릅니다. '+error.message+' 검색 기록에서 상태를 확인하세요.',true);}
+  finally{searching=false;$('search-button').disabled=false;}
 }
 function renderReader() {
   const hit=hits.find(item=>item.passage_id===selected), p=passage;
   const korean=['ko','kor'].includes(p.language.toLowerCase().split('-')[0]);
-  const originalRanges=hit?.highlight_ranges.map(([a,b])=>[a+hit.excerpt_start,b+hit.excerpt_start]) || [];
+  const originalRanges=hit?.original_ranges || hit?.highlight_ranges.map(([a,b])=>[a+hit.excerpt_start,b+hit.excerpt_start]) || [];
   const url=hit?.canonical_url ?? p.canonical_url;
   let sourceLink='';try{const parsed=new URL(url);if(parsed.protocol==='https:'&&!parsed.username&&!parsed.password)sourceLink=`<a href="${esc(parsed.href)}" target="_blank" rel="noopener noreferrer">출처 사이트 열기</a>`;}catch{}
   $('reader').innerHTML=`<div class="reader-head"><span class="chip">${esc(sourceName(hit?.source || p.source))}</span><span class="chip">보관 원문 버전</span>${p.ocr_review_status?'<span class="chip caution">OCR '+esc(p.ocr_review_status)+'</span>':''}<h2>${esc(hit?.title || p.title)}</h2><p class="muted">${esc(locatorText(p.locator))} ${p.extraction_status==='partial'?'부분 추출 · 미처리 페이지가 있습니다.':''}</p>${hit?'<small>문헌명·출처 링크는 검색 당시 정보를 우선 표시합니다.</small>':''}</div><div class="parallel"><section><h3>보관 원문 <span class="chip">${esc(p.language)}</span></h3><div class="original" lang="${esc(p.language)}">${highlight(p.text,originalRanges)}</div></section><section><h3>${korean?'한국어 원문 · 번역 불필요':'한국어 번역'}</h3>${korean?'<p class="muted">왼쪽은 한국어 원문입니다. OCR 자료는 보관 파일과 대조하세요.</p>':`<span class="chip caution">로컬 생성 · 미검토 · 공식 번역 아님</span><label>저장된 번역 이력<select id="translation-picker"><option value="">저장 번역 선택</option>${p.translations.map(t=>`<option value="${esc(t.id)}" ${translation?.id===t.id?'selected':''}>${t.status==='completed'?'생성 완료':'실패'} · ${esc(time(t.created_at))} · ${esc(t.prompt_revision)}</option>`).join('')}</select></label><div id="translation-text"></div><div class="actions"><button data-action="translate" class="primary">로컬 한국어 번역</button><button data-action="retranslate">새로 생성</button></div><p class="muted">저장 이력은 모델 없이 열 수 있습니다. 새 번역은 원문을 로컬 모델에만 전달합니다. 부정·주어·가톨릭 용어를 반드시 대조하세요.</p>`}</section></div><div id="reader-status" class="status" role="status"></div><div class="actions">${sourceLink}<a href="/api/assets/${encodeURIComponent(p.asset_id)}" download>보관 파일 다운로드</a><button data-action="copy">근거와 ID 복사</button></div><small>원본 HTML은 이 화면에서 실행하지 않습니다. PDF는 내려받아 위에 표시된 페이지를 확인하세요.</small><details class="metadata"><summary>원문·생성 버전 정보</summary><p>원문 ${esc(p.version_id)}\n문단 ${esc(p.id)}\n보관 시각 ${esc(time(p.version_created_at))}\n위치 ${esc(JSON.stringify(p.locator))}</p><p id="translation-metadata"></p></details>`;
@@ -118,8 +177,10 @@ async function openVersion(versionId,title) {
 }
 async function loadHistory() {
   const ticket=viewTicket;status('history-status','최근 검색 기록을 여는 중입니다.');
-  try{const value=await api('/api/history');if(ticket!==viewTicket)return;records=value;
+  try{const [value,live]=await Promise.all([api('/api/history'),api('/api/live/history')]);if(ticket!==viewTicket)return;records=value;
     $('history').innerHTML=value.length?value.map((item,index)=>`<section class="row"><div><span class="chip">${item.reused?'재사용 요청':'검색 요청'}</span><h3>${esc(item.query_original)}</h3><small>${esc(time(item.accessed_at))} · 실제 ${esc(item.retrieval)} · 최초 ${esc(time(item.searched_at))}</small><p class="muted">조건 ${esc(JSON.stringify(item.filters))}</p></div><div class="actions"><button data-history="${index}">당시 결과 열기</button><button data-rerun="${index}">현재 보관 자료로 재검색</button></div></section>`).join(''):'<p>아직 검색 기록이 없습니다.</p>';status('history-status',`최근 ${value.length}개 요청을 표시합니다.`);
+    $('history').insertAdjacentHTML('afterbegin','<h2>실시간 검색 기록</h2>'+live.map(item=>`<section class="row"><div><h3>${esc(item.query_original)}</h3><p>${esc(item.status)} · ${esc(time(item.started_at))}</p></div><div class="actions"><button data-live-run="${esc(item.id)}">당시 실시간 결과 열기</button><button data-live-query="${esc(item.query_original)}">교황청 최신 재검색</button></div></section>`).join('')+'<h2>보관 자료 검색 기록</h2>');
+    status('history-status',`실시간 ${live.length}개 실행 · 보관 검색 ${value.length}개 요청. 각각 최근100개까지 표시합니다.`);
   }catch(error){if(ticket===viewTicket)status('history-status',`기록 오류. ${error.message}`,true);}
 }
 async function loadCollections() {
@@ -158,6 +219,10 @@ async function openRun(id, query=null, refresh=false, passageId=null, translatio
 document.addEventListener('click',async event=>{
   const button=event.target.closest('button');if(!button)return;
   if(button.dataset.screen){nav(button.dataset.screen);if(screen==='library')await loadLibrary();if(screen==='history')await loadHistory();}
+  else if(button.dataset.liveRun)await openLiveRun(button.dataset.liveRun);
+  else if(button.dataset.liveQuery)await performLive(button.dataset.liveQuery);
+  else if(button.dataset.livePassage&&hits.some(h=>h.passage_id===button.dataset.livePassage))await openPassage(button.dataset.livePassage,null,true);
+  else if(button.dataset.liveVersion){nav('library');await openVersion(button.dataset.liveVersion,button.dataset.title);}
   else if(button.dataset.hit!==undefined)await openPassage(hits[Number(button.dataset.hit)].passage_id,null,true);
   else if(button.dataset.document!==undefined){const doc=documents[Number(button.dataset.document)];await openVersion(doc.current_version_id,doc.title);}
   else if(button.dataset.collectionList)await showCollection(button.dataset.collectionList);
@@ -173,6 +238,7 @@ document.addEventListener('click',async event=>{
   }
 });
 $('search-form').addEventListener('submit',event=>{event.preventDefault();performSearch(formOptions());});
+$('search-form').elements.method.addEventListener('change',syncSearchMode);
 document.addEventListener('change',event=>{if(event.target.id==='translation-picker'){if(event.target.value)openSavedTranslation(event.target.value);else{translationTicket++;translation=null;renderTranslation();updateHash();}}});
 $('import-form').addEventListener('submit',async event=>{
   event.preventDefault();if(importing)return;const form=event.target,file=form.elements.file.files[0];if(!file)return;
@@ -182,7 +248,7 @@ $('import-form').addEventListener('submit',async event=>{
   catch(error){status('library-status',`가져오기 실패. ${error.message}`,true);}
   finally{importing=false;$('import-button').disabled=false;}
 });
-async function openLocation(){const params=new URLSearchParams(location.hash.slice(1));if(params.get('run'))await openRun(params.get('run'),null,false,params.get('passage'),params.get('translation'));else if(params.get('passage'))await openPassage(params.get('passage'),params.get('translation'));}
+async function openLocation(){const params=new URLSearchParams(location.hash.slice(1));if(params.get('live'))await openLiveRun(params.get('live'),params.get('passage'),params.get('translation'));else if(params.get('run'))await openRun(params.get('run'),null,false,params.get('passage'),params.get('translation'));else if(params.get('passage'))await openPassage(params.get('passage'),params.get('translation'));}
 window.addEventListener('hashchange',openLocation);
-async function boot(){await loadLibrary();await openLocation();}
+async function boot(){syncSearchMode();await loadLibrary();await openLocation();}
 boot();

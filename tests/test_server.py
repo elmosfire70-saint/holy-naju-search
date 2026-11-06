@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -11,9 +12,73 @@ from holy_naju.local_models import LocalModelError
 from holy_naju.server import Handler, LocalServer
 from holy_naju.storage import Library
 from holy_naju.translation import translate_passage
+from holy_naju.public_fetch import CollectionBlocked
+from holy_naju.discovery import CATALOG_URL
 
 
 class ServerTests(unittest.TestCase):
+    def wait_live_job(self, job_id):
+        for _ in range(200):
+            status, job, _ = self.request('/api/live/jobs/' + job_id)
+            self.assertEqual(status, 200)
+            if job['status'] != 'running':
+                return job
+            time.sleep(.02)
+        self.fail('live job did not finish')
+
+    def test_live_job_history_and_stored_passage_without_new_network(self):
+        url = 'https://www.vatican.va/roman_curia/congregations/cfaith/documents/example_en.html'
+        entered, release = threading.Event(), threading.Event()
+        client = Mock()
+
+        def fetch(address, **kwargs):
+            if '/bin/servlet/' in address:
+                entered.set()
+                release.wait(3)
+                return b'{"response":{"numFound":0,"docs":[]}}'
+            if address == CATALOG_URL:
+                return f'<a href="{url}">Note on Marian Titles</a>'.encode()
+            return ('<html><title>Example</title><body><div class="testo"><p>' +
+                    'Original context. '*10 + 'Co-redemptrix is discussed.</p></div></body></html>').encode()
+
+        client.fetch.side_effect = fetch
+        with patch('holy_naju.server.PublicClient', return_value=client):
+            for invalid in ({'query': ''}, {'query': 'Mater', 'root': 'C:/'}, {'query': 'Mater', 'language': 'ko'}):
+                self.assertEqual(self.request('/api/live/search', invalid)[0], 400)
+            self.assertEqual(self.request('/api/live/search', {'query': 'Mater'}, {'Origin': 'https://evil.test'})[0], 403)
+            status, job, _ = self.request('/api/live/search', {'query': '공동 구속자'})
+            self.assertEqual(status, 200)
+            self.assertTrue(entered.wait(2))
+            try:
+                self.assertEqual(self.request('/api/live/search', {'query': 'Mater'})[1]['error'], 'live_search_busy')
+                self.assertEqual(self.request('/api/collect', {'scope_id': 'naju-messages'})[1]['error'], 'collection_or_search_busy')
+                self.assertEqual(self.request('/api/library')[0], 200)
+            finally:
+                release.set()
+            job = self.wait_live_job(job['id'])
+        self.assertEqual(job['status'], 'finished')
+        client.fetch.side_effect = AssertionError('network forbidden on history')
+        with patch('holy_naju.server.PublicClient', return_value=client):
+            run = self.request('/api/live/runs/' + job['run_id'])[1]
+            self.assertEqual(run['status'], 'completed')
+            evidence = run['results'][0]['stored_evidence'][0]
+            passage = self.request('/api/passages/' + evidence['passage_id'])[1]
+            self.assertEqual(passage['text'][evidence['start']:evidence['end']], evidence['excerpt'])
+            self.assertEqual(run['results'][0]['reader_passages'][0]['id'], evidence['passage_id'])
+            self.assertEqual(self.request('/api/live/history')[1][0]['id'], job['run_id'])
+        self.assertEqual(self.request('/api/live/jobs/missing')[0], 404)
+
+    def test_live_block_is_failed_not_zero_and_gate_is_released(self):
+        client = Mock()
+        client.fetch.side_effect = CollectionBlocked('http_403')
+        with patch('holy_naju.server.PublicClient', return_value=client):
+            for _ in range(2):
+                job = self.request('/api/live/search', {'query': 'Mater'})[1]
+                self.assertEqual(self.wait_live_job(job['id'])['status'], 'failed')
+        records = self.request('/api/live/history')[1]
+        self.assertEqual(len(records), 2)
+        self.assertTrue(all(r['status'] == 'failed' for r in records))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

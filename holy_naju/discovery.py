@@ -125,7 +125,7 @@ def verify_candidate(candidate, query, client, capture=None):
             'review_status': 'unreviewed'}
 
 
-def live_search(query, client, *, capture=None):
+def live_search(query, client, *, capture=None, progress=None):
     validate_query(query)
     # 검색 연산자를 전달하지 않는다. 별칭은 정확 구절로 요청해 하이픈의 잡음을 줄인다.
     alias = normalize(query).replace(' ', '') in ALIASES
@@ -137,6 +137,8 @@ def live_search(query, client, *, capture=None):
         'queryroute': 'vatican_va-search-main', 'q': remote_query, 'fq': 'lang_s:en',
         'sort': 'score desc,id asc', 'rows': 10, 'start': 0})
     errors, hits, total = [], [], None
+    if progress:
+        progress('교황청 자체 검색 확인 중')
     try:
         hits, total = search_candidates(json.loads(client.fetch(request_url, media_types=('application/json',))), request_url)
     except CollectionBlocked:
@@ -144,6 +146,8 @@ def live_search(query, client, *, capture=None):
     except (OSError, ValueError, RuntimeError) as error:
         errors.append({'stage': 'search', 'error': str(error)})
     try:
+        if progress:
+            progress('신앙교리부 공식 목록 확인 중')
         hits = discover(query, client)['candidates'] + hits
     except CollectionBlocked:
         raise
@@ -155,6 +159,8 @@ def live_search(query, client, *, capture=None):
     results = []
     for hit in list(unique.values())[:5]:
         try:
+            if progress:
+                progress(f'원문 확인 중 · {len(results) + 1}/{min(5, len(unique))}')
             results.append(verify_candidate(hit, query, client, capture))
         except CollectionBlocked:
             raise

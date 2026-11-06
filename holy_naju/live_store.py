@@ -22,6 +22,11 @@ def get_live_run(library, run_id):
     return result
 
 
+def live_history(library):
+    return [dict(row) for row in library.db.execute(
+        'SELECT id,query_original,started_at,finished_at,status FROM live_search_runs ORDER BY started_at DESC,id LIMIT 100')]
+
+
 def save_matched(library, hit, raw):
     if hashlib.sha256(raw).hexdigest() != hit['raw_sha256']:
         raise ValueError('verified_bytes_changed')
@@ -45,7 +50,7 @@ def save_matched(library, hit, raw):
     return {**hit, 'version_id': stored['version_id'], 'asset_id': stored['asset_id'], 'stored_evidence': evidence}
 
 
-def search_and_store(library, query, client):
+def search_and_store(library, query, client, *, progress=None):
     validate_query(query)
     run_id = str(uuid4())
     with library.db:
@@ -54,7 +59,9 @@ def search_and_store(library, query, client):
     # ponytail: 최대5개/개당25MiB 원문을 메모리에 유지한다. 동시 작업 확장 시 임시 파일로 전환한다.
     raw_by_url = {}
     try:
-        result = live_search(query, client, capture=lambda url, raw: raw_by_url.__setitem__(url, raw))
+        result = live_search(query, client, capture=lambda url, raw: raw_by_url.__setitem__(url, raw), progress=progress)
+        if progress:
+            progress('일치 원문과 검색 근거 보관 중')
         for rank, hit in enumerate(result['results'], 1):
             if hit['verification_status'] == 'matched':
                 try:

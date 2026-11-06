@@ -5,6 +5,8 @@ import logging
 from pathlib import Path, PureWindowsPath
 import sqlite3
 import tempfile
+import threading
+from uuid import uuid4
 from urllib.parse import parse_qs, quote, urlsplit
 
 from holy_naju.local_models import LocalModelError
@@ -12,6 +14,9 @@ from holy_naju.collections import collect, initialize, summary, task_list
 from holy_naju.search import get_run, history, search
 from holy_naju.storage import Library, MAX_FILE_BYTES, MEDIA_TYPES, file_hash
 from holy_naju.translation import get_translation, translate_passage
+from holy_naju.discovery import validate_query
+from holy_naju.live_store import get_live_run, live_history, search_and_store
+from holy_naju.public_fetch import PublicClient
 
 WEB = Path(__file__).with_name("web")
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
@@ -41,9 +46,55 @@ class LocalServer(ThreadingHTTPServer):
 
     def __init__(self, root="data/library", port=8766):
         self.root = Path(root).resolve()
+        self.live_lock = threading.Lock()
+        self.live_jobs = {}
+        self.live_active = None
+        self.collection_active = False
         with Library(self.root) as library:
             initialize(library)
         super().__init__(("127.0.0.1", port), Handler)
+
+    def live_job(self, job_id):
+        with self.live_lock:
+            if job_id not in self.live_jobs:
+                raise KeyError(job_id)
+            return dict(self.live_jobs[job_id])
+
+    def start_live(self, query):
+        validate_query(query)
+        with self.live_lock:
+            if self.live_active or self.collection_active:
+                raise ValueError('live_search_busy')
+            job_id = str(uuid4())
+            # ponytail: 개인 서버의 최근 작업20개만 메모리에 둔다. 영구 기록은 live_search_runs다.
+            while len(self.live_jobs) >= 20:
+                del self.live_jobs[next(iter(self.live_jobs))]
+            self.live_jobs[job_id] = {'id': job_id, 'status': 'running', 'stage': '검색 준비 중'}
+            self.live_active = job_id
+
+        def progress(stage):
+            with self.live_lock:
+                self.live_jobs[job_id]['stage'] = stage
+
+        def work():
+            try:
+                with Library(self.root) as library:
+                    result = search_and_store(library, query, PublicClient(self.root / 'discovery-evidence'), progress=progress)
+                update = {'status': 'finished', 'run_id': result['id'], 'stage': '검색 종료'}
+            except Exception as error:
+                update = {'status': 'failed', 'error': str(error), 'stage': '검색 실패 · 기록에서 확인하세요'}
+            with self.live_lock:
+                self.live_jobs[job_id].update(update)
+                self.live_active = None
+
+        try:
+            threading.Thread(target=work, daemon=True).start()
+        except Exception:
+            with self.live_lock:
+                self.live_active = None
+                self.live_jobs[job_id].update(status='failed', error='worker_start_failed')
+            raise
+        return self.live_job(job_id)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -131,6 +182,18 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, {"error": "internal_error"})
 
     def _get(self, library, path):
+        if path == '/api/live/history':
+            return live_history(library)
+        if path.startswith('/api/live/jobs/'):
+            return self.server.live_job(path.removeprefix('/api/live/jobs/'))
+        if path.startswith('/api/live/runs/'):
+            result = get_live_run(library, path.removeprefix('/api/live/runs/'))
+            for doc in result['results']:
+                doc['reader_passages'] = [dict(row) for row in library.db.execute(
+                    'SELECT DISTINCT p.id,p.text,p.ordinal FROM live_search_evidence e '
+                    'JOIN passages p ON p.id=e.passage_id AND p.version_id=e.version_id '
+                    'WHERE e.result_id=? ORDER BY p.ordinal', (doc['result_id'],))]
+            return result
         if path == "/api/collections":
             return summary(library)
         if path.startswith("/api/collections/"):
@@ -150,11 +213,23 @@ class Handler(BaseHTTPRequestHandler):
         raise KeyError(path)
 
     def _post(self, library, path, payload):
+        if path == '/api/live/search':
+            if set(payload) != {'query'}:
+                raise ValueError('invalid_live_search_fields')
+            return self.server.start_live(payload['query'])
         if path == "/api/collect":
             if (payload.keys() - {"scope_id", "retry"} or not isinstance(payload.get("scope_id"), str)
                     or type(payload.get("retry", False)) is not bool):
                 raise ValueError("invalid_collection_fields")
-            return collect(library, payload["scope_id"], pages=1, documents=1, retry=payload.get("retry", False))
+            with self.server.live_lock:
+                if self.server.live_active or self.server.collection_active:
+                    raise ValueError('collection_or_search_busy')
+                self.server.collection_active = True
+            try:
+                return collect(library, payload["scope_id"], pages=1, documents=1, retry=payload.get("retry", False))
+            finally:
+                with self.server.live_lock:
+                    self.server.collection_active = False
         if path == "/api/search":
             allowed = {"query", "source", "language", "document_type", "issued_from", "issued_to",
                        "mode", "limit", "refresh", "retrieval"}
