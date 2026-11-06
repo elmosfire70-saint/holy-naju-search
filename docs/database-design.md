@@ -1,5 +1,7 @@
 # 문헌·파일·검색 기록 DB 설계
 
+2026-11-06 변경 방향은 [실시간 검색·결과 중심 보관 재설계](live-search-redesign.md)를 우선한다. 아래는 현재 구현과 기존 목표의 기록이다. 기존 근거 테이블/영구 ID는 유지하고, 원문 미확인 웹 후보와 검증된 근거를 구분하는 live_search_runs/results/evidence 추가를 제안한다. 아직 마이그레이션을 적용하지 않았다.
+
 목표 논리 설계와 현재 구현 범위를 함께 기록한다. 개인 PC용 원본 DB는 SQLite이며 초기 마이그레이션은 `holy_naju/migrations/001_documents.sql`에 구현했다. GraphDB는 같은 ID와 근거를 사용하는 후속 검색·탐색 저장소로 확장한다.
 
 스키마 버전 1은 sources, documents, editions, assets, ingestion_jobs, acquisitions, document_versions, extraction_pages, passages다. 버전 2에서 index_generations, search_state, passage_fts, search_runs, search_hits, search_history를 추가했다. 버전 3은 embeddings, passage_embeddings, translations 및 search_runs의 retrieval/model_profile을 추가한다. 버전 4는 collection_scopes, collection_tasks, collection_attempts를 추가한다. 교정 관련 추가 필드는 해당 기능 구현 시 확장한다. 지원하지 않는 DB 버전은 수정하지 않고 거부한다.
