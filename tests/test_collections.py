@@ -121,7 +121,7 @@ class CollectionTests(unittest.TestCase):
         db.commit()
         db.close()
         with Library(root) as library:
-            self.assertEqual(library.db.execute("PRAGMA user_version").fetchone()[0], 4)
+            self.assertEqual(library.db.execute("PRAGMA user_version").fetchone()[0], 5)
             self.assertEqual(library.db.execute("SELECT title FROM documents WHERE id='preserved'").fetchone()[0], "Old document")
             self.assertTrue(library.check()["ok"])
 

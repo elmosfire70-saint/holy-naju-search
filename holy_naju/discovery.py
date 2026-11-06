@@ -101,7 +101,7 @@ def search_candidates(payload, request_url):
     return hits, total
 
 
-def verify_candidate(candidate, query, client):
+def verify_candidate(candidate, query, client, capture=None):
     url = document_url(candidate['url'])
     raw = client.fetch(url)
     if re.search(rb'captcha|verify you are human|access denied|just a moment', raw, re.I):
@@ -117,13 +117,15 @@ def verify_candidate(candidate, query, client):
         if matches:
             evidence.append({**passage, 'ranges': [[m.start(), m.end()] for m in matches]})
     title_match = normalize(query) in normalize(extracted['title'])
+    if capture is not None and (evidence or title_match):
+        capture(url, raw)
     return {**candidate, 'verification_status': 'matched' if evidence or title_match else 'no_match',
             'raw_sha256': hashlib.sha256(raw).hexdigest(), 'evidence': evidence,
             'verified_title': extracted['title'], 'title_match': title_match,
             'review_status': 'unreviewed'}
 
 
-def live_search(query, client):
+def live_search(query, client, *, capture=None):
     validate_query(query)
     # 검색 연산자를 전달하지 않는다. 별칭은 정확 구절로 요청해 하이픈의 잡음을 줄인다.
     alias = normalize(query).replace(' ', '') in ALIASES
@@ -153,7 +155,7 @@ def live_search(query, client):
     results = []
     for hit in list(unique.values())[:5]:
         try:
-            results.append(verify_candidate(hit, query, client))
+            results.append(verify_candidate(hit, query, client, capture))
         except CollectionBlocked:
             raise
         except (OSError, ValueError, RuntimeError) as error:

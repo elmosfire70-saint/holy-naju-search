@@ -213,7 +213,7 @@ class LocalModelTests(unittest.TestCase):
         legacy.commit()
         legacy.close()
         with Library(root) as migrated:
-            self.assertEqual(migrated.db.execute("PRAGMA user_version").fetchone()[0], 4)
+            self.assertEqual(migrated.db.execute("PRAGMA user_version").fetchone()[0], 5)
             again = search(migrated, "Prayer")
             self.assertTrue(again["reused"])
             self.assertEqual(first["id"], again["id"])
