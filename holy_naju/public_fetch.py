@@ -50,7 +50,7 @@ class PublicClient:
             raise ValueError("collection_response_too_large")
         return raw, media_type
 
-    def fetch(self, url):
+    def fetch(self, url, *, media_types=("text/html", "application/xhtml+xml")):
         host = urlsplit(url).hostname
         if host not in HOSTS.values():
             raise ValueError("outside_collection_hosts")
@@ -70,6 +70,6 @@ class PublicClient:
         if not self.robots[host].can_fetch(USER_AGENT, url):
             raise CollectionBlocked("robots_disallowed")
         raw, media = self._get(url)
-        if media not in ("text/html", "application/xhtml+xml"):
+        if media not in media_types:
             raise ValueError("expected_html_collection")
         return raw

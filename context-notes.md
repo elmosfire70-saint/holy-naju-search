@@ -2,6 +2,9 @@
 
 ## 2026-11-06 검색 중심 재설계
 
+- 두 번째 구현은 자체 검색과 원문 검증 CLI다. 공개 검색1페이지/목록1페이지/본문최대5개로 제한하고 부분 범위를 표시한다. 연구 DB·UI는 변경하지 않는다. 기존 PublicClient의 robots/간격/리디렉션 거부를 그대로 사용한다.
+- 자체 검색·목록 결합과 본문 일치 구간 CLI를 구현했다. 실제 공동 구속자 조회에서 목표 문헌14개 일치 블록과 다른 문헌1개 블록을 확인했다. 숫자는 공식 문단 개수가 아니다. 전체72개 테스트 통과, DB 저장/UI는 다음 단위다.
+
 - 다음 단계의 첫 구현은 공식 목록 후보 발견으로 제한한다. 기존 PublicClient를 수정하지 않고 재사용한다. 후보는 본문 미확인이며 실시간 검색 UI 완성으로 표시하지 않는다.
 - discovery 모듈/CLI와 테스트2개를 추가했다. `python -m unittest discover -s tests -p test_discovery.py -v` 통과. `python -m holy_naju.discovery '공동 구속자'` 실제 실행은 공식 목록에서 Mater Populi fidelis 영어판1개를 발견했다. DB 접근/문헌 본문 저장은 없고 robots 증거만 data/discovery-evidence에 남긴다. 영어 신앙교리부 목록 한정이며 자체 검색 JSON·본문 검증·DB 저장·UI는 미완료다.
 
